@@ -1,10 +1,8 @@
 export default function Home() {
   return (
-    <main style={{ padding: "30px", fontFamily: "Arial" }}>
+    <main style={{ padding: "24px", fontFamily: "Arial" }}>
       <h1>🌿 Tathastu</h1>
       <h2>आयुर्वेद चिकित्सा सहायक</h2>
-
-      <hr />
 
       <h3>वैद्य डेस्क</h3>
 
