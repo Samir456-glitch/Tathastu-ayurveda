@@ -1,9 +1,56 @@
 "use client";
 
 import { useState } from "react";
+import { supabase } from "../lib/supabase";
 
 export default function Home() {
   const [showForm, setShowForm] = useState(false);
+
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [gender, setGender] = useState("");
+  const [phone, setPhone] = useState("");
+  const [complaint, setComplaint] = useState("");
+
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function savePatient() {
+    setMessage("");
+
+    if (!name.trim()) {
+      setMessage("Patient ka naam bharna zaroori hai.");
+      return;
+    }
+
+    setSaving(true);
+
+    const { error } = await supabase.from("patients").insert([
+      {
+        name: name.trim(),
+        age: age ? Number(age) : null,
+        gender: gender || null,
+        phone: phone.trim() || null,
+        complaint: complaint.trim() || null,
+      },
+    ]);
+
+    setSaving(false);
+
+    if (error) {
+      console.error(error);
+      setMessage("Save nahi hua: " + error.message);
+      return;
+    }
+
+    setMessage("✅ Rogi successfully save ho gaya!");
+
+    setName("");
+    setAge("");
+    setGender("");
+    setPhone("");
+    setComplaint("");
+  }
 
   return (
     <main
@@ -38,22 +85,51 @@ export default function Home() {
           <h3>👤 नया रोगी पंजीकरण</h3>
 
           <div style={{ display: "grid", gap: "12px", maxWidth: "420px" }}>
-            <input placeholder="रोगी का नाम" />
-            <input placeholder="आयु" type="number" />
+            <input
+              placeholder="रोगी का नाम"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
 
-            <select defaultValue="">
-              <option value="" disabled>
-                लिंग चुनें
-              </option>
+            <input
+              placeholder="आयु"
+              type="number"
+              value={age}
+              onChange={(e) => setAge(e.target.value)}
+            />
+
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+            >
+              <option value="">लिंग चुनें</option>
               <option value="Male">पुरुष</option>
               <option value="Female">महिला</option>
               <option value="Other">अन्य</option>
             </select>
 
-            <input placeholder="मोबाइल नंबर" />
-            <textarea placeholder="मुख्य शिकायत" rows="4" />
+            <input
+              placeholder="मोबाइल नंबर"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
 
-            <button>💾 रोगी सहेजें</button>
+            <textarea
+              placeholder="मुख्य शिकायत"
+              rows="4"
+              value={complaint}
+              onChange={(e) => setComplaint(e.target.value)}
+            />
+
+            <button onClick={savePatient} disabled={saving}>
+              {saving ? "⏳ Save हो रहा है..." : "💾 रोगी सहेजें"}
+            </button>
+
+            {message && (
+              <p style={{ fontWeight: "bold" }}>
+                {message}
+              </p>
+            )}
 
             <button onClick={() => setShowForm(false)}>
               ← वापस
