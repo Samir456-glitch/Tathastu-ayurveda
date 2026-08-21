@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { supabase } from "../lib/supabase";
 
 export default function Home() {
@@ -8,18 +8,49 @@ export default function Home() {
 
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
-
   const [loadingPatients, setLoadingPatients] = useState(false);
   const [search, setSearch] = useState("");
 
+  // New patient
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
   const [phone, setPhone] = useState("");
   const [complaint, setComplaint] = useState("");
-
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+
+  // Clinical Assessment
+  const [assessment, setAssessment] = useState({
+    pulse: "",
+    dosha: "",
+    dhatu: "",
+    mala: "",
+    agni: "",
+    ama: "",
+    prakriti: "",
+    vikriti: "",
+
+    ashtavidha_nadi: "",
+    ashtavidha_mutra: "",
+    ashtavidha_mala: "",
+    ashtavidha_jihwa: "",
+    ashtavidha_shabda: "",
+    ashtavidha_sparsha: "",
+    ashtavidha_drik: "",
+    ashtavidha_akriti: "",
+
+    samprapti: "",
+    diagnosis: "",
+    treatment_plan: "",
+    clinical_notes: "",
+  });
+
+  const [savingAssessment, setSavingAssessment] =
+    useState(false);
+
+  const [assessmentMessage, setAssessmentMessage] =
+    useState("");
 
   // =========================
   // SAVE PATIENT
@@ -34,7 +65,7 @@ export default function Home() {
     }
 
     setSaving(true);
-    setMessage("⏳ रोगी save हो रहा है...");
+    setMessage("⏳ रोगी सहेजा जा रहा है...");
 
     try {
       const patient = {
@@ -59,14 +90,13 @@ export default function Home() {
 
       console.log("PATIENT SAVED:", data);
 
-      setMessage("✅ रोगी successfully save हो गया!");
+      setMessage("✅ रोगी सफलतापूर्वक सहेजा गया!");
 
       setName("");
       setAge("");
       setGender("");
       setPhone("");
       setComplaint("");
-
     } catch (error) {
       console.error("SAVE ERROR:", error);
 
@@ -94,14 +124,16 @@ export default function Home() {
 
       if (error) {
         console.error("PATIENT LIST ERROR:", error);
-        alert("रोगी सूची लोड नहीं हुई: " + error.message);
+        alert(
+          "रोगी सूची लोड नहीं हुई: " + error.message
+        );
         return;
       }
 
       setPatients(data || []);
-
     } catch (error) {
       console.error(error);
+
       alert(
         "रोगी सूची लोड नहीं हुई: " +
           (error?.message || "Unknown error")
@@ -123,14 +155,120 @@ export default function Home() {
   }
 
   // =========================
+  // ASSESSMENT FIELD UPDATE
+  // =========================
+
+  function updateAssessment(field, value) {
+    setAssessment((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
+  }
+
+  // =========================
+  // SAVE CLINICAL ASSESSMENT
+  // =========================
+
+  async function saveAssessment() {
+    if (!selectedPatient?.id) {
+      setAssessmentMessage(
+        "❌ रोगी का चयन नहीं हुआ है।"
+      );
+      return;
+    }
+
+    setSavingAssessment(true);
+    setAssessmentMessage(
+      "⏳ Clinical Assessment सहेजा जा रहा है..."
+    );
+
+    try {
+      const assessmentData = {
+        patient_id: selectedPatient.id,
+
+        pulse: assessment.pulse,
+        dosha: assessment.dosha,
+        dhatu: assessment.dhatu,
+        mala: assessment.mala,
+        agni: assessment.agni,
+        ama: assessment.ama,
+        prakriti: assessment.prakriti,
+        vikriti: assessment.vikriti,
+
+        ashtavidha_nadi:
+          assessment.ashtavidha_nadi,
+        ashtavidha_mutra:
+          assessment.ashtavidha_mutra,
+        ashtavidha_mala:
+          assessment.ashtavidha_mala,
+        ashtavidha_jihwa:
+          assessment.ashtavidha_jihwa,
+        ashtavidha_shabda:
+          assessment.ashtavidha_shabda,
+        ashtavidha_sparsha:
+          assessment.ashtavidha_sparsha,
+        ashtavidha_drik:
+          assessment.ashtavidha_drik,
+        ashtavidha_akriti:
+          assessment.ashtavidha_akriti,
+
+        samprapti: assessment.samprapti,
+        diagnosis: assessment.diagnosis,
+        treatment_plan:
+          assessment.treatment_plan,
+        clinical_notes:
+          assessment.clinical_notes,
+      };
+
+      const { error } = await supabase
+        .from("clinical_assessments")
+        .insert([assessmentData]);
+
+      if (error) {
+        console.error(
+          "ASSESSMENT ERROR:",
+          error
+        );
+
+        setAssessmentMessage(
+          "❌ Assessment save नहीं हुआ: " +
+            error.message
+        );
+
+        return;
+      }
+
+      setAssessmentMessage(
+        "✅ Clinical Assessment सफलतापूर्वक सहेजा गया!"
+      );
+    } catch (error) {
+      console.error(error);
+
+      setAssessmentMessage(
+        "❌ Error: " +
+          (error?.message || "Unknown error")
+      );
+    } finally {
+      setSavingAssessment(false);
+    }
+  }
+
+  // =========================
   // FILTER PATIENTS
   // =========================
 
-  const searchText = search.toLowerCase().trim();
+  const searchText = search
+    .toLowerCase()
+    .trim();
 
   const filteredPatients = patients.filter((p) => {
-    const patientName = (p.name || "").toLowerCase();
-    const patientPhone = (p.phone || "").toString();
+    const patientName = (
+      p.name || ""
+    ).toLowerCase();
+
+    const patientPhone = (
+      p.phone || ""
+    ).toString();
 
     return (
       patientName.includes(searchText) ||
@@ -139,7 +277,7 @@ export default function Home() {
   });
 
   // =========================
-  // HOME SCREEN
+  // HOME
   // =========================
 
   if (screen === "home") {
@@ -165,7 +303,11 @@ export default function Home() {
             maxWidth: "420px",
           }}
         >
-          <button onClick={() => setScreen("newPatient")}>
+          <button
+            onClick={() =>
+              setScreen("newPatient")
+            }
+          >
             ➕ नया रोगी
           </button>
 
@@ -194,7 +336,7 @@ export default function Home() {
   }
 
   // =========================
-  // NEW PATIENT SCREEN
+  // NEW PATIENT
   // =========================
 
   if (screen === "newPatient") {
@@ -212,10 +354,6 @@ export default function Home() {
             setMessage("");
             setScreen("home");
           }}
-          style={{
-            marginBottom: "15px",
-            padding: "8px 14px",
-          }}
         >
           ← वापस
         </button>
@@ -232,7 +370,9 @@ export default function Home() {
           <input
             placeholder="रोगी का नाम"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) =>
+              setName(e.target.value)
+            }
           />
 
           <input
@@ -240,24 +380,41 @@ export default function Home() {
             type="number"
             min="0"
             value={age}
-            onChange={(e) => setAge(e.target.value)}
+            onChange={(e) =>
+              setAge(e.target.value)
+            }
           />
 
           <select
             value={gender}
-            onChange={(e) => setGender(e.target.value)}
+            onChange={(e) =>
+              setGender(e.target.value)
+            }
           >
-            <option value="">लिंग चुनें</option>
-            <option value="Male">पुरुष</option>
-            <option value="Female">महिला</option>
-            <option value="Other">अन्य</option>
+            <option value="">
+              लिंग चुनें
+            </option>
+
+            <option value="Male">
+              पुरुष
+            </option>
+
+            <option value="Female">
+              महिला
+            </option>
+
+            <option value="Other">
+              अन्य
+            </option>
           </select>
 
           <input
             placeholder="मोबाइल नंबर"
             type="tel"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={(e) =>
+              setPhone(e.target.value)
+            }
           />
 
           <textarea
@@ -274,7 +431,7 @@ export default function Home() {
             disabled={saving}
           >
             {saving
-              ? "⏳ Save हो रहा है..."
+              ? "⏳ सहेजा जा रहा है..."
               : "💾 रोगी सहेजें"}
           </button>
 
@@ -282,8 +439,8 @@ export default function Home() {
             <div
               style={{
                 padding: "12px",
-                borderRadius: "8px",
                 background: "#fff",
+                borderRadius: "8px",
                 fontWeight: "bold",
               }}
             >
@@ -296,7 +453,7 @@ export default function Home() {
   }
 
   // =========================
-  // PATIENT LIST SCREEN
+  // PATIENT LIST
   // =========================
 
   if (screen === "patients") {
@@ -311,10 +468,6 @@ export default function Home() {
       >
         <button
           onClick={() => setScreen("home")}
-          style={{
-            padding: "8px 14px",
-            marginBottom: "12px",
-          }}
         >
           ← वापस
         </button>
@@ -332,24 +485,21 @@ export default function Home() {
             width: "100%",
             maxWidth: "480px",
             padding: "12px",
-            boxSizing: "border-box",
-            borderRadius: "8px",
-            border: "1px solid #ccc",
             marginBottom: "16px",
+            boxSizing: "border-box",
           }}
         />
 
         {loadingPatients ? (
-          <p>⏳ रोगी सूची लोड हो रही है...</p>
+          <p>⏳ लोड हो रहा है...</p>
         ) : filteredPatients.length === 0 ? (
-          <p style={{ color: "#777" }}>
+          <p>
             कोई रोगी नहीं मिला।
           </p>
         ) : (
           <div
             style={{
-              display: "flex",
-              flexDirection: "column",
+              display: "grid",
               gap: "10px",
               maxWidth: "480px",
             }}
@@ -362,57 +512,29 @@ export default function Home() {
                   setScreen("profile");
                 }}
                 style={{
-                  border: "1px solid #ddd",
-                  borderRadius: "10px",
                   padding: "14px",
                   background: "#fff",
+                  border: "1px solid #ddd",
+                  borderRadius: "10px",
                   cursor: "pointer",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent:
-                      "space-between",
-                    fontWeight: "bold",
-                  }}
-                >
-                  <span>
-                    👤 {p.name}
-                  </span>
+                <strong>
+                  👤 {p.name}
+                </strong>
 
-                  <span
-                    style={{
-                      fontSize: "12px",
-                      color: "#666",
-                    }}
-                  >
-                    {p.age
-                      ? `${p.age} वर्ष`
-                      : ""}
-                  </span>
+                <div>
+                  आयु: {p.age || "—"} |{" "}
+                  {p.gender || "—"}
                 </div>
 
-                <div
-                  style={{
-                    fontSize: "13px",
-                    color: "#555",
-                    marginTop: "5px",
-                  }}
-                >
-                  📱 {p.phone || "N/A"}
+                <div>
+                  📱 {p.phone || "—"}
                 </div>
 
-                <div
-                  style={{
-                    fontSize: "13px",
-                    marginTop: "5px",
-                  }}
-                >
-                  <strong>
-                    शिकायत:
-                  </strong>{" "}
-                  {p.complaint || "—"}
+                <div>
+                  🩺{" "}
+                  {p.complaint || "कोई शिकायत नहीं"}
                 </div>
               </div>
             ))}
@@ -426,7 +548,10 @@ export default function Home() {
   // PATIENT PROFILE
   // =========================
 
-  if (screen === "profile" && selectedPatient) {
+  if (
+    screen === "profile" &&
+    selectedPatient
+  ) {
     const p = selectedPatient;
 
     return (
@@ -439,11 +564,9 @@ export default function Home() {
         }}
       >
         <button
-          onClick={() => setScreen("patients")}
-          style={{
-            padding: "8px 14px",
-            marginBottom: "15px",
-          }}
+          onClick={() =>
+            setScreen("patients")
+          }
         >
           ← रोगी सूची
         </button>
@@ -456,12 +579,10 @@ export default function Home() {
             borderRadius: "12px",
             padding: "18px",
             maxWidth: "480px",
-            boxShadow:
-              "0 2px 8px rgba(0,0,0,0.08)",
           }}
         >
           <h3>
-            {p.name || "नाम उपलब्ध नहीं"}
+            {p.name}
           </h3>
 
           <p>
@@ -485,29 +606,26 @@ export default function Home() {
             {p.complaint || "—"}
           </p>
 
-          <p>
-            <strong>Patient ID:</strong>{" "}
-            {p.id}
-          </p>
-
           <hr />
 
-          <h3>🩺 आगे की चिकित्सा</h3>
-
           <button
+            onClick={() => {
+              setAssessmentMessage("");
+              setScreen("assessment");
+            }}
             style={{
               width: "100%",
-              padding: "12px",
+              padding: "14px",
               marginBottom: "10px",
             }}
           >
-            📋 Clinical Assessment
+            🩺 Clinical Assessment
           </button>
 
           <button
             style={{
               width: "100%",
-              padding: "12px",
+              padding: "14px",
               marginBottom: "10px",
             }}
           >
@@ -517,7 +635,7 @@ export default function Home() {
           <button
             style={{
               width: "100%",
-              padding: "12px",
+              padding: "14px",
               marginBottom: "10px",
             }}
           >
@@ -527,7 +645,7 @@ export default function Home() {
           <button
             style={{
               width: "100%",
-              padding: "12px",
+              padding: "14px",
             }}
           >
             📝 Clinical Notes
@@ -537,5 +655,253 @@ export default function Home() {
     );
   }
 
-  return null;
-}
+  // =========================
+  // CLINICAL ASSESSMENT
+  // =========================
+
+  if (
+    screen === "assessment" &&
+    selectedPatient
+  ) {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          background: "#f5f7f2",
+          padding: "20px",
+          fontFamily: "Arial, sans-serif",
+        }}
+      >
+        <button
+          onClick={() =>
+            setScreen("profile")
+          }
+        >
+          ← रोगी प्रोफाइल
+        </button>
+
+        <h2>🩺 चिकित्सकीय मूल्यांकन</h2>
+
+        <div
+          style={{
+            background: "#fff",
+            padding: "16px",
+            borderRadius: "12px",
+            maxWidth: "520px",
+          }}
+        >
+          <h3>
+            👤 {selectedPatient.name}
+          </h3>
+
+          <p>
+            आयु: {selectedPatient.age || "—"} |{" "}
+            {selectedPatient.gender || "—"}
+          </p>
+
+          <hr />
+
+          <h3>🌿 आयुर्वेदिक मूल्यांकन</h3>
+
+          <AssessmentInput
+            label="नाड़ी"
+            value={assessment.pulse}
+            onChange={(v) =>
+              updateAssessment("pulse", v)
+            }
+          />
+
+          <AssessmentInput
+            label="दोष"
+            value={assessment.dosha}
+            onChange={(v) =>
+              updateAssessment("dosha", v)
+            }
+          />
+
+          <AssessmentInput
+            label="धातु"
+            value={assessment.dhatu}
+            onChange={(v) =>
+              updateAssessment("dhatu", v)
+            }
+          />
+
+          <AssessmentInput
+            label="मल"
+            value={assessment.mala}
+            onChange={(v) =>
+              updateAssessment("mala", v)
+            }
+          />
+
+          <AssessmentInput
+            label="अग्नि"
+            value={assessment.agni}
+            onChange={(v) =>
+              updateAssessment("agni", v)
+            }
+          />
+
+          <AssessmentInput
+            label="आम"
+            value={assessment.ama}
+            onChange={(v) =>
+              updateAssessment("ama", v)
+            }
+          />
+
+          <AssessmentInput
+            label="प्रकृति"
+            value={assessment.prakriti}
+            onChange={(v) =>
+              updateAssessment("prakriti", v)
+            }
+          />
+
+          <AssessmentInput
+            label="विकृति"
+            value={assessment.vikriti}
+            onChange={(v) =>
+              updateAssessment("vikriti", v)
+            }
+          />
+
+          <h3>
+            📋 अष्टविध परीक्षा
+          </h3>
+
+          <AssessmentInput
+            label="नाड़ी"
+            value={assessment.ashtavidha_nadi}
+            onChange={(v) =>
+              updateAssessment(
+                "ashtavidha_nadi",
+                v
+              )
+            }
+          />
+
+          <AssessmentInput
+            label="मूत्र"
+            value={assessment.ashtavidha_mutra}
+            onChange={(v) =>
+              updateAssessment(
+                "ashtavidha_mutra",
+                v
+              )
+            }
+          />
+
+          <AssessmentInput
+            label="मल"
+            value={assessment.ashtavidha_mala}
+            onChange={(v) =>
+              updateAssessment(
+                "ashtavidha_mala",
+                v
+              )
+            }
+          />
+
+          <AssessmentInput
+            label="जिह्वा"
+            value={assessment.ashtavidha_jihwa}
+            onChange={(v) =>
+              updateAssessment(
+                "ashtavidha_jihwa",
+                v
+              )
+            }
+          />
+
+          <AssessmentInput
+            label="शब्द"
+            value={assessment.ashtavidha_shabda}
+            onChange={(v) =>
+              updateAssessment(
+                "ashtavidha_shabda",
+                v
+              )
+            }
+          />
+
+          <AssessmentInput
+            label="स्पर्श"
+            value={assessment.ashtavidha_sparsha}
+            onChange={(v) =>
+              updateAssessment(
+                "ashtavidha_sparsha",
+                v
+              )
+            }
+          />
+
+          <AssessmentInput
+            label="दृष्टि"
+            value={assessment.ashtavidha_drik}
+            onChange={(v) =>
+              updateAssessment(
+                "ashtavidha_drik",
+                v
+              )
+            }
+          />
+
+          <AssessmentInput
+            label="आकृति"
+            value={assessment.ashtavidha_akriti}
+            onChange={(v) =>
+              updateAssessment(
+                "ashtavidha_akriti",
+                v
+              )
+            }
+          />
+
+          <h3>📋 रोग विवरण</h3>
+
+          <AssessmentInput
+            label="सम्प्राप्ति"
+            value={assessment.samprapti}
+            onChange={(v) =>
+              updateAssessment(
+                "samprapti",
+                v
+              )
+            }
+            textarea
+          />
+
+          <AssessmentInput
+            label="निदान"
+            value={assessment.diagnosis}
+            onChange={(v) =>
+              updateAssessment(
+                "diagnosis",
+                v
+              )
+            }
+            textarea
+          />
+
+          <AssessmentInput
+            label="चिकित्सा योजना"
+            value={assessment.treatment_plan}
+            onChange={(v) =>
+              updateAssessment(
+                "treatment_plan",
+                v
+              )
+            }
+            textarea
+          />
+
+          <AssessmentInput
+            label="चिकित्सकीय टिप्पणियाँ"
+            value={assessment.clinical_notes}
+            onChange={(v) =>
+              updateAssessment(
+                "clinical_notes",
+                v
+     
