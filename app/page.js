@@ -18,25 +18,16 @@ export default function Home() {
   async function savePatient() {
     setMessage("");
 
-    // Temporary connection test
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-    alert(
-      supabaseUrl
-        ? "Supabase URL mil raha hai ✅"
-        : "SUPABASE URL MISSING ❌"
-    );
-
     if (!name.trim()) {
-      setMessage("⚠️ Patient ka naam bharna zaroori hai.");
+      setMessage("⚠️ रोगी का नाम भरना जरूरी है।");
       return;
     }
 
     setSaving(true);
-    setMessage("⏳ Rogi save ho raha hai...");
+    setMessage("⏳ रोगी save हो रहा है...");
 
     try {
-      const patientData = {
+      const patient = {
         name: name.trim(),
         age: age ? Number(age) : null,
         gender: gender || null,
@@ -46,15 +37,15 @@ export default function Home() {
 
       const { data, error } = await supabase
         .from("patients")
-        .insert([patientData])
-        .select();
+        .insert(patient)
+        .select()
+        .single();
 
       if (error) {
         console.error("SUPABASE ERROR:", error);
 
         setMessage(
-          "❌ Save nahi hua: " +
-            (error.message || "Unknown Supabase error")
+          `❌ Save नहीं हुआ: ${error.message}`
         );
 
         return;
@@ -62,19 +53,21 @@ export default function Home() {
 
       console.log("PATIENT SAVED:", data);
 
-      setMessage("✅ Rogi successfully save ho gaya!");
+      setMessage("✅ रोगी successfully save हो गया!");
 
       setName("");
       setAge("");
       setGender("");
       setPhone("");
       setComplaint("");
+
     } catch (error) {
       console.error("CONNECTION ERROR:", error);
 
       setMessage(
-        "❌ Connection error: " +
-          (error?.message || "Failed to fetch")
+        `❌ Connection error: ${
+          error?.message || "Failed to fetch"
+        }`
       );
     } finally {
       setSaving(false);
@@ -105,7 +98,12 @@ export default function Home() {
               maxWidth: "420px",
             }}
           >
-            <button onClick={() => setShowForm(true)}>
+            <button
+              onClick={() => {
+                setMessage("");
+                setShowForm(true);
+              }}
+            >
               ➕ नया रोगी
             </button>
 
@@ -191,7 +189,12 @@ export default function Home() {
               </div>
             )}
 
-            <button onClick={() => setShowForm(false)}>
+            <button
+              onClick={() => {
+                setMessage("");
+                setShowForm(false);
+              }}
+            >
               ← वापस
             </button>
           </div>
