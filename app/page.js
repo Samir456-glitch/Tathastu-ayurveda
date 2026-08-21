@@ -16,6 +16,7 @@ export default function Home() {
   const [message, setMessage] = useState("");
 
   async function savePatient() {
+    alert("Rogi Save button working!");
     setMessage("");
 
     if (!name.trim()) {
