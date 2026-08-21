@@ -18,6 +18,15 @@ export default function Home() {
   async function savePatient() {
     setMessage("");
 
+    // Temporary connection test
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+    alert(
+      supabaseUrl
+        ? "Supabase URL mil raha hai ✅"
+        : "SUPABASE URL MISSING ❌"
+    );
+
     if (!name.trim()) {
       setMessage("⚠️ Patient ka naam bharna zaroori hai.");
       return;
@@ -60,12 +69,12 @@ export default function Home() {
       setGender("");
       setPhone("");
       setComplaint("");
-    } catch (err) {
-      console.error("SAVE ERROR:", err);
+    } catch (error) {
+      console.error("CONNECTION ERROR:", error);
 
       setMessage(
         "❌ Connection error: " +
-          (err?.message || "Failed to connect with Supabase")
+          (error?.message || "Failed to fetch")
       );
     } finally {
       setSaving(false);
@@ -96,12 +105,7 @@ export default function Home() {
               maxWidth: "420px",
             }}
           >
-            <button
-              onClick={() => {
-                setMessage("");
-                setShowForm(true);
-              }}
-            >
+            <button onClick={() => setShowForm(true)}>
               ➕ नया रोगी
             </button>
 
@@ -187,12 +191,7 @@ export default function Home() {
               </div>
             )}
 
-            <button
-              onClick={() => {
-                setMessage("");
-                setShowForm(false);
-              }}
-            >
+            <button onClick={() => setShowForm(false)}>
               ← वापस
             </button>
           </div>
