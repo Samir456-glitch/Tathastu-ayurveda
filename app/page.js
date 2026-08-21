@@ -16,41 +16,60 @@ export default function Home() {
   const [message, setMessage] = useState("");
 
   async function savePatient() {
-    alert("Rogi Save button working!");
     setMessage("");
 
     if (!name.trim()) {
-      setMessage("Patient ka naam bharna zaroori hai.");
+      setMessage("⚠️ Patient ka naam bharna zaroori hai.");
       return;
     }
 
     setSaving(true);
+    setMessage("⏳ Rogi save ho raha hai...");
 
-    const { error } = await supabase.from("patients").insert([
-      {
+    try {
+      const patientData = {
         name: name.trim(),
         age: age ? Number(age) : null,
         gender: gender || null,
         phone: phone.trim() || null,
         complaint: complaint.trim() || null,
-      },
-    ]);
+      };
 
-    setSaving(false);
+      const { data, error } = await supabase
+        .from("patients")
+        .insert([patientData])
+        .select();
 
-    if (error) {
-      console.error(error);
-      setMessage("Save nahi hua: " + error.message);
-      return;
+      if (error) {
+        console.error("SUPABASE ERROR:", error);
+
+        setMessage(
+          "❌ Save nahi hua: " +
+            (error.message || "Unknown Supabase error")
+        );
+
+        return;
+      }
+
+      console.log("PATIENT SAVED:", data);
+
+      setMessage("✅ Rogi successfully save ho gaya!");
+
+      setName("");
+      setAge("");
+      setGender("");
+      setPhone("");
+      setComplaint("");
+    } catch (err) {
+      console.error("SAVE ERROR:", err);
+
+      setMessage(
+        "❌ Connection error: " +
+          (err?.message || "Failed to connect with Supabase")
+      );
+    } finally {
+      setSaving(false);
     }
-
-    setMessage("✅ Rogi successfully save ho gaya!");
-
-    setName("");
-    setAge("");
-    setGender("");
-    setPhone("");
-    setComplaint("");
   }
 
   return (
@@ -63,21 +82,37 @@ export default function Home() {
       }}
     >
       <h1>🌿 Tathastu</h1>
+
       <h2>आयुर्वेद चिकित्सा सहायक</h2>
 
       {!showForm ? (
         <>
           <h3>वैद्य डेस्क</h3>
 
-          <div style={{ display: "grid", gap: "12px", maxWidth: "420px" }}>
-            <button onClick={() => setShowForm(true)}>
+          <div
+            style={{
+              display: "grid",
+              gap: "12px",
+              maxWidth: "420px",
+            }}
+          >
+            <button
+              onClick={() => {
+                setMessage("");
+                setShowForm(true);
+              }}
+            >
               ➕ नया रोगी
             </button>
 
             <button>👤 रोगी सूची</button>
+
             <button>📋 चिकित्सकीय परीक्षण</button>
+
             <button>💊 चिकित्सा / Prescription</button>
+
             <button>🔄 अनुवर्तन (Follow-up)</button>
+
             <button>🚨 आपातकाल / Referral</button>
           </div>
         </>
@@ -85,7 +120,13 @@ export default function Home() {
         <>
           <h3>👤 नया रोगी पंजीकरण</h3>
 
-          <div style={{ display: "grid", gap: "12px", maxWidth: "420px" }}>
+          <div
+            style={{
+              display: "grid",
+              gap: "12px",
+              maxWidth: "420px",
+            }}
+          >
             <input
               placeholder="रोगी का नाम"
               value={name}
@@ -95,6 +136,7 @@ export default function Home() {
             <input
               placeholder="आयु"
               type="number"
+              min="0"
               value={age}
               onChange={(e) => setAge(e.target.value)}
             />
@@ -111,6 +153,7 @@ export default function Home() {
 
             <input
               placeholder="मोबाइल नंबर"
+              type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
             />
@@ -122,17 +165,34 @@ export default function Home() {
               onChange={(e) => setComplaint(e.target.value)}
             />
 
-            <button onClick={savePatient} disabled={saving}>
-              {saving ? "⏳ Save हो रहा है..." : "💾 रोगी सहेजें"}
+            <button
+              onClick={savePatient}
+              disabled={saving}
+            >
+              {saving
+                ? "⏳ Save हो रहा है..."
+                : "💾 रोगी सहेजें"}
             </button>
 
             {message && (
-              <p style={{ fontWeight: "bold" }}>
+              <div
+                style={{
+                  padding: "12px",
+                  borderRadius: "8px",
+                  background: "#ffffff",
+                  fontWeight: "bold",
+                }}
+              >
                 {message}
-              </p>
+              </div>
             )}
 
-            <button onClick={() => setShowForm(false)}>
+            <button
+              onClick={() => {
+                setMessage("");
+                setShowForm(false);
+              }}
+            >
               ← वापस
             </button>
           </div>
