@@ -66,6 +66,7 @@ export default function Home() {
   const [prescriptionMsg, setPrescriptionMsg] = useState("");
   const [savedPrescriptions, setSavedPrescriptions] = useState([]);
   const [currentPrescription, setCurrentPrescription] = useState(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // =========================
   // SAVE PATIENT
@@ -219,6 +220,55 @@ export default function Home() {
     }
   }
 
+  // =========================
+  // DIRECT PDF DOWNLOAD / SHARE
+  // =========================
+  async function downloadPdfDirect() {
+    setDownloadingPdf(true);
+
+    try {
+      if (!window.html2pdf) {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+        document.body.appendChild(script);
+        await new Promise((res) => (script.onload = res));
+      }
+
+      const element = document.getElementById("printableArea");
+      const opt = {
+        margin: [8, 8, 8, 8],
+        filename: `${selectedPatient?.name || "Patient"}_पर्चा.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+      };
+
+      await window.html2pdf().set(opt).from(element).save();
+    } catch (e) {
+      alert("PDF डाउनलोड में समस्या आई, कृपया दुबारा प्रयास करें।");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
+
+  function shareOnWhatsApp() {
+    if (!selectedPatient || !currentPrescription) return;
+    let text = `🌿 *तथास्तु आयुर्वेद क्लिनिक*\n\n`;
+    text += `*रोगी:* ${selectedPatient.name} (${selectedPatient.age || "—"}y / ${selectedPatient.gender || "—"})\n`;
+    text += `*दिनांक:* ${new Date(currentPrescription.created_at || Date.now()).toLocaleDateString()}\n\n`;
+    text += `📋 *Rx (औषधियाँ):*\n`;
+    currentPrescription.medicines?.forEach((m, idx) => {
+      text += `${idx + 1}. *${m.name}* - ${m.dose || ""} (${m.anupana ? "अनुपान: " + m.anupana : ""})\n`;
+    });
+    if (currentPrescription.diet_instructions) {
+      text += `\n🥗 *पथ्यापथ्य:* ${currentPrescription.diet_instructions}\n`;
+    }
+    text += `\n🔄 *पुनः परीक्षण:* ${currentPrescription.follow_up_days || 7} दिन बाद`;
+
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
+  }
+
   // Filter
   const searchText = search.toLowerCase().trim();
   const filteredPatients = patients.filter((p) => {
@@ -228,14 +278,14 @@ export default function Home() {
   });
 
   // =========================
-  // 1. HOME SCREEN (वैद्य डेस्क)
+  // 1. HOME SCREEN (Front Page with Tathastu)
   // =========================
   if (screen === "home") {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "24px", fontFamily: "Arial, sans-serif" }}>
-        <h1 style={{ color: "#2e7d32", margin: "0 0 4px 0" }}>🌿 तथास्तु</h1>
-        <h2 style={{ fontSize: "18px", color: "#555", margin: "0 0 2px 0" }}>आयुर्वेद चिकित्सा सहायक</h2>
-        <h3 style={{ fontSize: "14px", color: "#777", marginTop: 0 }}>वैद्य डेस्क</h3>
+        <h1 style={{ color: "#2e7d32", margin: "0 0 8px 0" }}>🌿 Tathastu</h1>
+        <h2 style={{ fontSize: "20px", margin: "0 0 4px 0" }}>आयुर्वेद चिकित्सा सहायक</h2>
+        <h3 style={{ fontSize: "16px", color: "#666", marginTop: 0 }}>वैद्य डेस्क</h3>
 
         <div style={{ display: "grid", gap: "12px", maxWidth: "420px", marginTop: "24px" }}>
           <button style={{ padding: "14px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500" }} onClick={() => setScreen("newPatient")}>
@@ -538,7 +588,7 @@ export default function Home() {
                   onClick={() => { setCurrentPrescription(rx); setScreen("printPreview"); }}
                   style={{ marginTop: "10px", padding: "8px 14px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
                 >
-                  👁️ पर्चा देखें / Print करें
+                  👁️ पर्चा देखें / डाउनलोड करें
                 </button>
               </div>
             ))}
@@ -549,103 +599,90 @@ export default function Home() {
   }
 
   // =========================
-  // 8. PRINT / PDF PREVIEW SCREEN (Stylish & Clean Layout)
+  // 8. PRINT / PDF PREVIEW SCREEN (तथास्तु आयुर्वेद क्लिनिक)
   // =========================
   if (screen === "printPreview" && selectedPatient && currentPrescription) {
     const rx = currentPrescription;
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif", maxWidth: "680px", margin: "0 auto" }}>
-        <style dangerouslySetInnerHTML={{__html: `
-          @media print {
-            body {
-              background: #fff !important;
-              padding: 0 !important;
-              margin: 0 !important;
-              -webkit-print-color-adjust: exact;
-            }
-            .no-print {
-              display: none !important;
-            }
-            #printableArea {
-              border: 2px solid #2e7d32 !important;
-              padding: 20px !important;
-              box-shadow: none !important;
-              width: 100% !important;
-              background: #fff !important;
-            }
-          }
-        `}} />
-
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }} className="no-print">
+        
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", marginBottom: "16px" }}>
           <button style={{ padding: "8px 14px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("profile")}>
-            ← रोगी प्रोफाइल
+            ← वापस
           </button>
-          <button style={{ padding: "10px 20px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }} onClick={() => window.print()}>
-            🖨️ PDF सेव / Print करें
-          </button>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={shareOnWhatsApp}
+              style={{ padding: "10px 14px", background: "#25D366", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+            >
+              💬 WhatsApp
+            </button>
+            <button
+              onClick={downloadPdfDirect}
+              disabled={downloadingPdf}
+              style={{ padding: "10px 16px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+            >
+              {downloadingPdf ? "⏳ PDF बन रही है..." : "📥 PDF Download"}
+            </button>
+          </div>
         </div>
 
-        {/* Prescription Letterhead */}
-        <div id="printableArea" style={{ border: "2px solid #2e7d32", padding: "24px", borderRadius: "12px", background: "#fff", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
+        {/* Prescription Letterhead in Hindi */}
+        <div id="printableArea" style={{ border: "2px solid #2e7d32", padding: "20px", borderRadius: "10px", background: "#fff" }}>
           
-          {/* Clinic Header */}
-          <div style={{ textAlign: "center", borderBottom: "2px solid #2e7d32", paddingBottom: "12px", marginBottom: "18px" }}>
-            <h1 style={{ margin: "0", color: "#2e7d32", fontSize: "26px", letterSpacing: "0.5px" }}>🌿 तथास्तु आयुर्वेद क्लिनिक</h1>
-            <p style={{ margin: "6px 0 0 0", fontSize: "14px", color: "#555", fontWeight: "500" }}>विशेष आयुर्वेद चिकित्सा एवं परामर्श केंद्र</p>
+          <div style={{ textAlign: "center", borderBottom: "2px solid #2e7d32", paddingBottom: "10px", marginBottom: "16px" }}>
+            <h1 style={{ margin: "0", color: "#2e7d32", fontSize: "24px" }}>🌿 तथास्तु आयुर्वेद क्लिनिक</h1>
+            <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#555" }}>विशेष आयुर्वेद चिकित्सा एवं परामर्श केंद्र</p>
           </div>
 
-          {/* Patient Details Bar */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", fontSize: "13px", marginBottom: "18px", background: "#f4f9f4", padding: "10px 12px", borderRadius: "8px", border: "1px solid #c8e6c9" }}>
-            <div><strong>रोगी नाम:</strong><br />{selectedPatient.name}</div>
-            <div><strong>आयु / लिंग:</strong><br />{selectedPatient.age || "—"} वर्ष / {selectedPatient.gender || "—"}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", fontSize: "12px", marginBottom: "16px", background: "#f4f9f4", padding: "8px 10px", borderRadius: "6px", border: "1px solid #c8e6c9" }}>
+            <div><strong>रोगी:</strong><br />{selectedPatient.name}</div>
+            <div><strong>आयु/लिंग:</strong><br />{selectedPatient.age || "—"} वर्ष / {selectedPatient.gender || "—"}</div>
             <div><strong>दिनांक:</strong><br />{new Date(rx.created_at || Date.now()).toLocaleDateString()}</div>
           </div>
 
-          {/* Rx Section */}
-          <h3 style={{ color: "#2e7d32", borderBottom: "1px solid #2e7d32", paddingBottom: "6px", marginTop: "10px", fontSize: "18px" }}>Rx (औषधि निर्देश)</h3>
+          <h3 style={{ color: "#2e7d32", borderBottom: "1px solid #2e7d32", paddingBottom: "4px", margin: "10px 0 8px 0", fontSize: "16px" }}>Rx (औषधि निर्देश)</h3>
           
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", marginTop: "10px", marginBottom: "15px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", marginBottom: "14px" }}>
             <thead>
               <tr style={{ background: "#e8f5e9", color: "#1b5e20", textAlign: "left" }}>
-                <th style={{ padding: "8px", border: "1px solid #c8e6c9", width: "40px", textAlign: "center" }}>क्र.</th>
-                <th style={{ padding: "8px", border: "1px solid #c8e6c9" }}>औषधि नाम (Medicine Name)</th>
-                <th style={{ padding: "8px", border: "1px solid #c8e6c9", width: "100px" }}>मात्रा (Dose)</th>
-                <th style={{ padding: "8px", border: "1px solid #c8e6c9", width: "130px" }}>अनुपान (Anupana)</th>
+                <th style={{ padding: "6px", border: "1px solid #c8e6c9", width: "30px", textAlign: "center" }}>#</th>
+                <th style={{ padding: "6px", border: "1px solid #c8e6c9" }}>औषधि नाम</th>
+                <th style={{ padding: "6px", border: "1px solid #c8e6c9", width: "90px" }}>मात्रा</th>
+                <th style={{ padding: "6px", border: "1px solid #c8e6c9", width: "110px" }}>अनुपान</th>
               </tr>
             </thead>
             <tbody>
               {rx.medicines?.map((m, i) => (
                 <tr key={i}>
-                  <td style={{ padding: "8px", border: "1px solid #ddd", textAlign: "center" }}>{i + 1}</td>
-                  <td style={{ padding: "8px", border: "1px solid #ddd" }}><strong style={{ color: "#222" }}>{m.name}</strong></td>
-                  <td style={{ padding: "8px", border: "1px solid #ddd" }}>{m.dose || "—"}</td>
-                  <td style={{ padding: "8px", border: "1px solid #ddd" }}>{m.anupana || "—"}</td>
+                  <td style={{ padding: "6px", border: "1px solid #ddd", textAlign: "center" }}>{i + 1}</td>
+                  <td style={{ padding: "6px", border: "1px solid #ddd" }}><strong>{m.name}</strong></td>
+                  <td style={{ padding: "6px", border: "1px solid #ddd" }}>{m.dose || "—"}</td>
+                  <td style={{ padding: "6px", border: "1px solid #ddd" }}>{m.anupana || "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          {/* Diet Instructions */}
           {rx.diet_instructions && (
-            <div style={{ marginTop: "15px", marginBottom: "15px" }}>
-              <strong style={{ color: "#2e7d32", fontSize: "15px" }}>🥗 पथ्यापथ्य निर्देश (Diet & Lifestyle):</strong>
-              <div style={{ background: "#fcfcfc", padding: "10px 12px", borderRadius: "6px", border: "1px solid #e0e0e0", margin: "6px 0", fontSize: "14px", lineHeight: "1.5", color: "#333" }}>
+            <div style={{ marginTop: "10px", marginBottom: "14px" }}>
+              <strong style={{ color: "#2e7d32", fontSize: "13px" }}>🥗 पथ्यापथ्य निर्देश:</strong>
+              <div style={{ background: "#fafafa", padding: "8px 10px", borderRadius: "4px", border: "1px solid #e0e0e0", margin: "4px 0", fontSize: "13px", color: "#333" }}>
                 {rx.diet_instructions}
               </div>
             </div>
           )}
 
-          {/* Footer / Signatures */}
-          <div style={{ marginTop: "35px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", fontSize: "14px" }}>
+          <div style={{ marginTop: "24px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", fontSize: "13px" }}>
             <div>
-              <strong style={{ color: "#444" }}>🔄 पुनः परीक्षण (Follow-up):</strong> 
-              <span style={{ marginLeft: "6px", background: "#eef7ee", padding: "4px 8px", borderRadius: "4px", color: "#2e7d32", fontWeight: "bold" }}>
+              <strong>🔄 पुनः परीक्षण:</strong> 
+              <span style={{ marginLeft: "4px", color: "#2e7d32", fontWeight: "bold" }}>
                 {rx.follow_up_days || 7} दिन बाद
               </span>
             </div>
             <div style={{ textAlign: "center" }}>
-              <div style={{ borderTop: "1.5px dashed #444", width: "160px", paddingTop: "6px", fontWeight: "bold", color: "#333" }}>
-                वैद्य के हस्ताक्षर
+              <div style={{ borderTop: "1px dashed #444", width: "130px", paddingTop: "4px", fontWeight: "bold" }}>
+                हस्ताक्षर (वैद्य)
               </div>
             </div>
           </div>
