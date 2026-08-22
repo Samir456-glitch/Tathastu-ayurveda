@@ -24,6 +24,24 @@ const DEFAULT_DOCTOR_SUGGESTIONS = [
   "Dr. Mohit Kumar (BAMS)"
 ];
 
+const COMMON_DIAGNOSIS_SUGGESTIONS = [
+  "अम्लपित्त (Hyperacidity / GERD)",
+  "संधिवात (Osteoarthritis)",
+  "आमवात (Rheumatoid Arthritis)",
+  "गृहणी दोष (IBS / Malabsorption)",
+  "प्रमेह (Diabetes Mellitus)",
+  "अर्श (Hemorrhoids / Piles)",
+  "कटीशूल (Lumbago / Sciatica)",
+  "कास व श्वास (Bronchial Asthma / Cough)",
+  "त्वक विकार / कुष्ठ (Skin Diseases)",
+  "यकृत विकार / कामला (Liver Disorders / Jaundice)",
+  "स्थौल्य (Obesity)",
+  "अग्निमांद्य / अजीर्ण (Indigestion)",
+  "वातव्याधि (Neurological / Musculoskeletal Disorders)",
+  "शिरःशूल (Migraine / Headache)",
+  "अनिद्रा (Insomnia / Stress)"
+];
+
 function formatTime(isoStr) {
   if (!isoStr) return "—";
   return new Date(isoStr).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
@@ -34,14 +52,14 @@ function formatDate(isoStr) {
   return new Date(isoStr).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function AssessmentInput({ label, value, onChange, textarea = false }) {
+function AssessmentInput({ label, value, onChange, textarea = false, list = null }) {
   return (
     <div style={{ marginBottom: "12px" }}>
       <label style={{ display: "block", marginBottom: "4px", fontSize: "14px", fontWeight: "bold", color: "#333" }}>{label}</label>
       {textarea ? (
         <textarea rows="3" value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} />
       ) : (
-        <input type="text" value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} />
+        <input list={list} type="text" value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} />
       )}
     </div>
   );
@@ -80,12 +98,17 @@ export default function Home() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState("");
 
-  // New patient
+  // New patient with Vitals
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
   const [phone, setPhone] = useState("");
   const [complaint, setComplaint] = useState("");
+  const [bp, setBp] = useState("");
+  const [pulseRate, setPulseRate] = useState("");
+  const [weight, setWeight] = useState("");
+  const [temperature, setTemperature] = useState("");
+  const [spo2, setSpo2] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -95,6 +118,11 @@ export default function Home() {
   const [editGender, setEditGender] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editComplaint, setEditComplaint] = useState("");
+  const [editBp, setEditBp] = useState("");
+  const [editPulseRate, setEditPulseRate] = useState("");
+  const [editWeight, setEditWeight] = useState("");
+  const [editTemperature, setEditTemperature] = useState("");
+  const [editSpo2, setEditSpo2] = useState("");
   const [editingPatient, setEditingPatient] = useState(false);
   const [editMsg, setEditMsg] = useState("");
 
@@ -176,9 +204,7 @@ export default function Home() {
   async function loadHospitalSettings() {
     try {
       const { data } = await supabase.from("hospital_settings").select("*").eq("id", 1).single();
-      if (data) {
-        setHospitalInfo(data);
-      }
+      if (data) setHospitalInfo(data);
     } catch (e) {
       console.log(e);
     }
@@ -276,9 +302,9 @@ export default function Home() {
     try {
       const { data } = await supabase.from("patients").select("*").order("id", { ascending: true });
       if (!data || data.length === 0) return alert("कोई डेटा उपलब्ध नहीं है");
-      let csvContent = "data:text/csv;charset=utf-8,ID,UHID,Name,Age,Gender,Phone,Complaint,Date,Status\n";
+      let csvContent = "data:text/csv;charset=utf-8,ID,UHID,Name,Age,Gender,Phone,Complaint,BP,Pulse,Weight,Temp,SpO2,Date,Status\n";
       data.forEach((p) => {
-        csvContent += `${p.id},TAT-${p.id},"${p.name || ""}",${p.age || ""},${p.gender || ""},"${p.phone || ""}","${(p.complaint || "").replace(/"/g, '""')}","${formatDate(p.created_at)}",${p.opd_status || ""}\n`;
+        csvContent += `${p.id},TAT-${p.id},"${p.name || ""}",${p.age || ""},${p.gender || ""},"${p.phone || ""}","${(p.complaint || "").replace(/"/g, '""')}","${p.bp || ""}","${p.pulse_rate || ""}","${p.weight || ""}","${p.temperature || ""}","${p.spo2 || ""}","${formatDate(p.created_at)}",${p.opd_status || ""}\n`;
       });
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
@@ -293,7 +319,7 @@ export default function Home() {
   }
 
   // =========================
-  // SAVE PATIENT
+  // SAVE PATIENT (With Vitals)
   // =========================
   async function savePatient() {
     setMessage("");
@@ -310,6 +336,11 @@ export default function Home() {
         gender: gender || null,
         phone: phone.trim() || null,
         complaint: complaint.trim() || null,
+        bp: bp.trim() || null,
+        pulse_rate: pulseRate.trim() || null,
+        weight: weight.trim() || null,
+        temperature: temperature.trim() || null,
+        spo2: spo2.trim() || null,
         opd_status: "Waiting",
         created_at: new Date().toISOString()
       };
@@ -319,6 +350,7 @@ export default function Home() {
       const regTime = formatTime(data?.created_at || patient.created_at);
       setMessage(`✅ रोगी टोकन जारी! (UHID: ${generatedId} | समय: ${regTime})`);
       setName(""); setAge(""); setGender(""); setPhone(""); setComplaint("");
+      setBp(""); setPulseRate(""); setWeight(""); setTemperature(""); setSpo2("");
       fetchStats();
     } catch (error) {
       setMessage("❌ Save Error: " + (error?.message || "Failed"));
@@ -350,6 +382,11 @@ export default function Home() {
     setEditGender(selectedPatient.gender || "");
     setEditPhone(selectedPatient.phone || "");
     setEditComplaint(selectedPatient.complaint || "");
+    setEditBp(selectedPatient.bp || "");
+    setEditPulseRate(selectedPatient.pulse_rate || "");
+    setEditWeight(selectedPatient.weight || "");
+    setEditTemperature(selectedPatient.temperature || "");
+    setEditSpo2(selectedPatient.spo2 || "");
     setEditMsg("");
     setScreen("editPatient");
   }
@@ -368,7 +405,12 @@ export default function Home() {
         age: editAge ? Number(editAge) : null,
         gender: editGender || null,
         phone: editPhone.trim() || null,
-        complaint: editComplaint.trim() || null
+        complaint: editComplaint.trim() || null,
+        bp: editBp.trim() || null,
+        pulse_rate: editPulseRate.trim() || null,
+        weight: editWeight.trim() || null,
+        temperature: editTemperature.trim() || null,
+        spo2: editSpo2.trim() || null
       };
       const { data, error } = await supabase.from("patients").update(updatedData).eq("id", selectedPatient.id).select().single();
       if (error) throw error;
@@ -776,6 +818,9 @@ export default function Home() {
     let text = `🌿 *${hospitalInfo.hospital_name}*\n\n`;
     text += `*रोगी ID (UHID):* TAT-${selectedPatient.id}\n`;
     text += `*रोगी:* ${selectedPatient.name} (${selectedPatient.age || "—"}y / ${selectedPatient.gender || "—"})\n`;
+    if (selectedPatient.bp || selectedPatient.pulse_rate || selectedPatient.weight) {
+      text += `*Vitals:* BP: ${selectedPatient.bp || "—"} | Pulse: ${selectedPatient.pulse_rate || "—"} | Wt: ${selectedPatient.weight || "—"}kg\n`;
+    }
     text += `*दिनांक:* ${formatDate(currentPrescription.created_at)}\n`;
     text += `*आगमन:* ${regTime} | *निकास:* ${consultTime}\n`;
     text += `*परामर्शक वैद्य:* ${currentPrescription.lifestyle_advice || attendingDoctor}\n\n`;
@@ -812,6 +857,12 @@ export default function Home() {
   if (screen === "home") {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
+        
+        {/* Global Auto-Suggestions Datalist */}
+        <datalist id="diagnosisSuggestions">
+          {COMMON_DIAGNOSIS_SUGGESTIONS.map((d, i) => <option key={i} value={d} />)}
+        </datalist>
+
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 style={{ color: "#2e7d32", margin: "0 0 4px 0" }}>🌿 Tathastu</h1>
@@ -855,7 +906,7 @@ export default function Home() {
         {/* Navigation Grid */}
         <div style={{ display: "grid", gap: "10px", maxWidth: "460px" }}>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => setScreen("newPatient")}>
-            ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry)
+            ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry & Vitals)
           </button>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ffb74d", background: "#fff8e1", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("Waiting")}>
             ⏳ <strong>लाइव OPD कतार (Waiting Room - {stats.waitingCount})</strong>
@@ -878,7 +929,7 @@ export default function Home() {
     const getPlaceholderText = () => {
       switch (masterType) {
         case "doctor":
-          return "डॉक्टर का नाम व उपाधि (उदा. Dr. Amit Sharma, BAMS)...";
+          return "डॉक्टर का नाम (उदा. Dr. Anshuman Mishra, BAMS)...";
         case "anupana":
           return "अनुपान का नाम (उदा. गोदुग्ध / अश्वगंधा क्वाथ)...";
         case "dose":
@@ -998,7 +1049,7 @@ export default function Home() {
   }
 
   // =========================
-  // 3. NEW PATIENT SCREEN
+  // 3. NEW PATIENT SCREEN (With Vitals & Symptom Auto-Suggest)
   // =========================
   if (screen === "newPatient") {
     return (
@@ -1006,19 +1057,45 @@ export default function Home() {
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => { setMessage(""); setScreen("home"); }}>
           ← वापस
         </button>
-        <h2>👤 नया टोकन व पंजीकरण</h2>
-        <div style={{ display: "grid", gap: "12px", maxWidth: "420px" }}>
-          <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="रोगी का नाम" value={name} onChange={(e) => setName(e.target.value)} />
-          <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="आयु" type="number" min="0" value={age} onChange={(e) => setAge(e.target.value)} />
-          <select style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} value={gender} onChange={(e) => setGender(e.target.value)}>
-            <option value="">लिंग चुनें</option>
-            <option value="Male">पुरुष</option>
-            <option value="Female">महिला</option>
-            <option value="Other">अन्य</option>
-          </select>
+        <h2>👤 नया टोकन व रोगी पंजीकरण</h2>
+        <div style={{ display: "grid", gap: "12px", maxWidth: "460px" }}>
+          <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="रोगी का नाम *" value={name} onChange={(e) => setName(e.target.value)} />
+          
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+            <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="आयु" type="number" min="0" value={age} onChange={(e) => setAge(e.target.value)} />
+            <select style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} value={gender} onChange={(e) => setGender(e.target.value)}>
+              <option value="">लिंग चुनें</option>
+              <option value="Male">पुरुष</option>
+              <option value="Female">महिला</option>
+              <option value="Other">अन्य</option>
+            </select>
+          </div>
+
           <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="मोबाइल नंबर (WhatsApp)" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <textarea style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="मुख्य शिकायत" rows="4" value={complaint} onChange={(e) => setComplaint(e.target.value)} />
-          <button style={{ padding: "12px", fontWeight: "bold", cursor: "pointer", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px" }} onClick={savePatient} disabled={saving}>
+          
+          {/* Vitals Section */}
+          <div style={{ background: "#fff", padding: "12px", borderRadius: "8px", border: "1px solid #c8e6c9" }}>
+            <div style={{ fontSize: "13px", fontWeight: "bold", color: "#2e7d32", marginBottom: "8px" }}>🩺 रोगी वाइटल्स (Vitals Record):</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
+              <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "13px" }} placeholder="BP (उदा. 120/80)" value={bp} onChange={(e) => setBp(e.target.value)} />
+              <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "13px" }} placeholder="Pulse (उदा. 74 bpm)" value={pulseRate} onChange={(e) => setPulseRate(e.target.value)} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
+              <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "12px" }} placeholder="वजन (kg)" value={weight} onChange={(e) => setWeight(e.target.value)} />
+              <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "12px" }} placeholder="Temp (°F)" value={temperature} onChange={(e) => setTemperature(e.target.value)} />
+              <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "12px" }} placeholder="SpO2 (%)" value={spo2} onChange={(e) => setSpo2(e.target.value)} />
+            </div>
+          </div>
+
+          <input
+            list="diagnosisSuggestions"
+            style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}
+            placeholder="मुख्य शिकायत / लक्षण (उदा. अम्लपित्त, संधिवात)..."
+            value={complaint}
+            onChange={(e) => setComplaint(e.target.value)}
+          />
+
+          <button style={{ padding: "12px", fontWeight: "bold", cursor: "pointer", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px", fontSize: "15px" }} onClick={savePatient} disabled={saving}>
             {saving ? "⏳ सहेजा जा रहा है..." : "💾 टोकन जारी करें (कतार में जोड़ें)"}
           </button>
           {message && <div style={{ padding: "12px", background: "#fff", borderRadius: "8px", fontWeight: "bold", border: "1px solid #ddd" }}>{message}</div>}
@@ -1028,7 +1105,7 @@ export default function Home() {
   }
 
   // =========================
-  // 4. EDIT PATIENT SCREEN
+  // 4. EDIT PATIENT SCREEN (With Vitals Edit)
   // =========================
   if (screen === "editPatient" && selectedPatient) {
     return (
@@ -1036,32 +1113,49 @@ export default function Home() {
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
           ← वापस प्रोफाइल
         </button>
-        <h2>✏️ रोगी विवरण सुधारें (TAT-{selectedPatient.id})</h2>
-        <div style={{ display: "grid", gap: "12px", maxWidth: "420px" }}>
+        <h2>✏️ रोगी विवरण व वाइटल्स सुधारें (TAT-{selectedPatient.id})</h2>
+        <div style={{ display: "grid", gap: "12px", maxWidth: "460px" }}>
           <div>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>रोगी का नाम:</label>
             <input style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} value={editName} onChange={(e) => setEditName(e.target.value)} />
           </div>
-          <div>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>आयु:</label>
-            <input style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} type="number" min="0" value={editAge} onChange={(e) => setEditAge(e.target.value)} />
-          </div>
-          <div>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>लिंग:</label>
-            <select style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} value={editGender} onChange={(e) => setEditGender(e.target.value)}>
-              <option value="">लिंग चुनें</option>
-              <option value="Male">पुरुष</option>
-              <option value="Female">महिला</option>
-              <option value="Other">अन्य</option>
-            </select>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>आयु:</label>
+              <input style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} type="number" min="0" value={editAge} onChange={(e) => setEditAge(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>लिंग:</label>
+              <select style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} value={editGender} onChange={(e) => setEditGender(e.target.value)}>
+                <option value="">लिंग चुनें</option>
+                <option value="Male">पुरुष</option>
+                <option value="Female">महिला</option>
+                <option value="Other">अन्य</option>
+              </select>
+            </div>
           </div>
           <div>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>मोबाइल नंबर:</label>
             <input style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
           </div>
+
+          {/* Vitals Edit */}
+          <div style={{ background: "#fff", padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", color: "#2e7d32", marginBottom: "6px" }}>वाइटल्स (Vitals):</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "6px" }}>
+              <input style={{ padding: "8px", border: "1px solid #ccc", borderRadius: "4px" }} placeholder="BP" value={editBp} onChange={(e) => setEditBp(e.target.value)} />
+              <input style={{ padding: "8px", border: "1px solid #ccc", borderRadius: "4px" }} placeholder="Pulse" value={editPulseRate} onChange={(e) => setEditPulseRate(e.target.value)} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
+              <input style={{ padding: "8px", border: "1px solid #ccc", borderRadius: "4px" }} placeholder="Weight (kg)" value={editWeight} onChange={(e) => setEditWeight(e.target.value)} />
+              <input style={{ padding: "8px", border: "1px solid #ccc", borderRadius: "4px" }} placeholder="Temp (°F)" value={editTemperature} onChange={(e) => setEditTemperature(e.target.value)} />
+              <input style={{ padding: "8px", border: "1px solid #ccc", borderRadius: "4px" }} placeholder="SpO2 (%)" value={editSpo2} onChange={(e) => setEditSpo2(e.target.value)} />
+            </div>
+          </div>
+
           <div>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>मुख्य शिकायत:</label>
-            <textarea style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} rows="4" value={editComplaint} onChange={(e) => setEditComplaint(e.target.value)} />
+            <input list="diagnosisSuggestions" style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} value={editComplaint} onChange={(e) => setEditComplaint(e.target.value)} />
           </div>
           <button style={{ padding: "12px", fontWeight: "bold", cursor: "pointer", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px" }} onClick={updatePatientDetails} disabled={editingPatient}>
             {editingPatient ? "⏳ अपडेट हो रहा है..." : "💾 अपडेट करें"}
@@ -1147,7 +1241,8 @@ export default function Home() {
                     🕒 टोकन समय: {formatDate(p.created_at)} ({formatTime(p.created_at)})
                   </div>
                   <div style={{ fontSize: "14px", color: "#555", marginTop: "2px" }}>आयु: {p.age || "—"} | {p.gender || "—"} | 📱 {p.phone || "—"}</div>
-                  <div style={{ fontSize: "13px", color: "#333", marginTop: "4px" }}>🩺 {p.complaint || "कोई शिकायत नहीं"}</div>
+                  {p.bp && <div style={{ fontSize: "12px", color: "#00796b", marginTop: "2px" }}>🩺 BP: {p.bp} | Pulse: {p.pulse_rate || "—"} | Wt: {p.weight || "—"}kg</div>}
+                  <div style={{ fontSize: "13px", color: "#333", marginTop: "4px" }}>📋 {p.complaint || "कोई शिकायत नहीं"}</div>
                 </div>
               );
             })}
@@ -1158,7 +1253,7 @@ export default function Home() {
   }
 
   // =========================
-  // 6. PATIENT PROFILE SCREEN
+  // 6. PATIENT PROFILE SCREEN (Vitals Displayed)
   // =========================
   if (screen === "profile" && selectedPatient) {
     const p = selectedPatient;
@@ -1189,6 +1284,16 @@ export default function Home() {
             </button>
           </div>
 
+          {/* Vitals Summary Strip */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", background: "#e8f5e9", padding: "8px", borderRadius: "6px", margin: "10px 0", textAlign: "center", fontSize: "12px" }}>
+            <div><strong>BP:</strong> {p.bp || "—"}</div>
+            <div><strong>Pulse:</strong> {p.pulse_rate || "—"}</div>
+            <div><strong>Weight:</strong> {p.weight ? `${p.weight} kg` : "—"}</div>
+            <div><strong>Temp:</strong> {p.temperature ? `${p.temperature} °F` : "—"}</div>
+            <div><strong>SpO2:</strong> {p.spo2 ? `${p.spo2} %` : "—"}</div>
+            <div><strong>Status:</strong> {p.opd_status || "Active"}</div>
+          </div>
+
           <p style={{ margin: "6px 0" }}><strong>आयु:</strong> {p.age || "—"} | <strong>लिंग:</strong> {p.gender || "—"}</p>
           <p style={{ margin: "6px 0" }}><strong>मोबाइल:</strong> {p.phone || "—"}</p>
           <p style={{ margin: "6px 0" }}><strong>मुख्य शिकायत:</strong><br />{p.complaint || "—"}</p>
@@ -1197,7 +1302,7 @@ export default function Home() {
             onClick={startEditPatient}
             style={{ width: "100%", padding: "8px", margin: "8px 0 14px 0", cursor: "pointer", background: "#fff", border: "1px solid #1976d2", color: "#1976d2", borderRadius: "6px", fontWeight: "bold", fontSize: "13px" }}
           >
-            ✏️ रोगी विवरण सुधारें (Edit Profile)
+            ✏️ रोगी विवरण व वाइटल्स सुधारें
           </button>
 
           <hr style={{ margin: "12px 0" }} />
@@ -1329,7 +1434,7 @@ export default function Home() {
   }
 
   // =========================
-  // 8. CLINICAL ASSESSMENT SCREEN
+  // 8. CLINICAL ASSESSMENT SCREEN (With Smart Diagnosis Auto-Suggest)
   // =========================
   if (screen === "assessment" && selectedPatient) {
     return (
@@ -1368,7 +1473,7 @@ export default function Home() {
 
           <h4 style={{ color: "#2e7d32", marginTop: "20px" }}>📋 रोग विवरण व निदान</h4>
           <AssessmentInput label="सम्प्राप्ति" value={assessment.samprapti} onChange={(v) => updateAssessment("samprapti", v)} textarea />
-          <AssessmentInput label="निदान (Diagnosis)" value={assessment.diagnosis} onChange={(v) => updateAssessment("diagnosis", v)} textarea />
+          <AssessmentInput list="diagnosisSuggestions" label="निदान (Diagnosis - Auto Suggest)" value={assessment.diagnosis} onChange={(v) => updateAssessment("diagnosis", v)} />
           <AssessmentInput label="चिकित्सा योजना" value={assessment.treatment_plan} onChange={(v) => updateAssessment("treatment_plan", v)} textarea />
           <AssessmentInput label="चिकित्सकीय टिप्पणियाँ" value={assessment.clinical_notes} onChange={(v) => updateAssessment("clinical_notes", v)} textarea />
 
@@ -1387,13 +1492,12 @@ export default function Home() {
   }
 
   // =========================
-  // 9. PRESCRIPTION CREATE SCREEN (Doctor Suggestions Included)
+  // 9. PRESCRIPTION CREATE SCREEN
   // =========================
   if (screen === "prescription" && selectedPatient) {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif" }}>
         
-        {/* Datalist for Doctor Suggestions */}
         <datalist id="doctorSuggestions">
           {doctorSuggestions.map((doc, idx) => (
             <option key={idx} value={doc} />
@@ -2052,7 +2156,7 @@ export default function Home() {
   }
 
   // =========================
-  // 16. PRINT / PDF PREVIEW SCREEN
+  // 16. PRINT / PDF PREVIEW SCREEN (With Vitals Bar in Rx)
   // =========================
   if (screen === "printPreview" && selectedPatient && currentPrescription) {
     const rx = currentPrescription;
@@ -2096,7 +2200,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1.1fr", gap: "8px", fontSize: "12px", marginBottom: "14px", background: "#f4f9f4", padding: "8px 10px", borderRadius: "6px", border: "1px solid #c8e6c9" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1.1fr", gap: "8px", fontSize: "12px", marginBottom: "10px", background: "#f4f9f4", padding: "8px 10px", borderRadius: "6px", border: "1px solid #c8e6c9" }}>
             <div>
               <strong>रोगी:</strong> {selectedPatient.name}<br />
               <span style={{ color: "#2e7d32", fontWeight: "bold" }}>UHID: TAT-{selectedPatient.id}</span>
@@ -2111,6 +2215,17 @@ export default function Home() {
               <div style={{ color: "#2e7d32", fontWeight: "bold" }}><strong>निकास:</strong> {exitTimeStr}</div>
             </div>
           </div>
+
+          {/* Vitals Bar in Printed Rx */}
+          {(selectedPatient.bp || selectedPatient.pulse_rate || selectedPatient.weight || selectedPatient.temperature) && (
+            <div style={{ display: "flex", gap: "14px", fontSize: "11px", background: "#fafafa", padding: "5px 10px", borderRadius: "4px", border: "1px solid #eee", marginBottom: "12px", color: "#333" }}>
+              {selectedPatient.bp && <span><strong>BP:</strong> {selectedPatient.bp}</span>}
+              {selectedPatient.pulse_rate && <span><strong>Pulse:</strong> {selectedPatient.pulse_rate}</span>}
+              {selectedPatient.weight && <span><strong>Weight:</strong> {selectedPatient.weight} kg</span>}
+              {selectedPatient.temperature && <span><strong>Temp:</strong> {selectedPatient.temperature} °F</span>}
+              {selectedPatient.spo2 && <span><strong>SpO2:</strong> {selectedPatient.spo2} %</span>}
+            </div>
+          )}
 
           <h3 style={{ color: "#2e7d32", borderBottom: "1px solid #2e7d32", paddingBottom: "4px", margin: "10px 0 8px 0", fontSize: "15px" }}>Rx (औषधि निर्देश)</h3>
           
