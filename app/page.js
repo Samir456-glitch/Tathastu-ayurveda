@@ -47,26 +47,10 @@ export default function Home() {
 
   // Clinical Assessment
   const [assessment, setAssessment] = useState({
-    pulse: "",
-    dosha: "",
-    dhatu: "",
-    mala: "",
-    agni: "",
-    ama: "",
-    prakriti: "",
-    vikriti: "",
-    ashtavidha_nadi: "",
-    ashtavidha_mutra: "",
-    ashtavidha_mala: "",
-    ashtavidha_jihwa: "",
-    ashtavidha_shabda: "",
-    ashtavidha_sparsha: "",
-    ashtavidha_drik: "",
-    ashtavidha_akriti: "",
-    samprapti: "",
-    diagnosis: "",
-    treatment_plan: "",
-    clinical_notes: "",
+    pulse: "", dosha: "", dhatu: "", mala: "", agni: "", ama: "", prakriti: "", vikriti: "",
+    ashtavidha_nadi: "", ashtavidha_mutra: "", ashtavidha_mala: "", ashtavidha_jihwa: "",
+    ashtavidha_shabda: "", ashtavidha_sparsha: "", ashtavidha_drik: "", ashtavidha_akriti: "",
+    samprapti: "", diagnosis: "", treatment_plan: "", clinical_notes: "",
   });
   const [savingAssessment, setSavingAssessment] = useState(false);
   const [assessmentMessage, setAssessmentMessage] = useState("");
@@ -80,6 +64,8 @@ export default function Home() {
   const [followUpDays, setFollowUpDays] = useState("7");
   const [savingPrescription, setSavingPrescription] = useState(false);
   const [prescriptionMsg, setPrescriptionMsg] = useState("");
+  const [savedPrescriptions, setSavedPrescriptions] = useState([]);
+  const [currentPrescription, setCurrentPrescription] = useState(null);
 
   // =========================
   // SAVE PATIENT
@@ -107,11 +93,7 @@ export default function Home() {
       if (error) throw error;
 
       setMessage("✅ रोगी सफलतापूर्वक सहेजा गया!");
-      setName("");
-      setAge("");
-      setGender("");
-      setPhone("");
-      setComplaint("");
+      setName(""); setAge(""); setGender(""); setPhone(""); setComplaint("");
     } catch (error) {
       setMessage("❌ Save Error: " + (error?.message || "Failed"));
     } finally {
@@ -164,14 +146,9 @@ export default function Home() {
     setAssessmentMessage("⏳ Assessment सहेजा जा रहा है...");
 
     try {
-      const assessmentData = {
-        patient_id: pId,
-        ...assessment
-      };
-
+      const assessmentData = { patient_id: pId, ...assessment };
       const { error } = await supabase.from("clinical_assessments").insert([assessmentData]);
       if (error) throw error;
-
       setAssessmentMessage("✅ Clinical Assessment सफलतापूर्वक सहेजा गया!");
     } catch (error) {
       setAssessmentMessage("❌ Error: " + error.message);
@@ -203,20 +180,42 @@ export default function Home() {
     setPrescriptionMsg("⏳ पर्चा सहेजा जा रहा है...");
 
     try {
-      const { error } = await supabase.from("prescriptions").insert([{
+      const newRx = {
         patient_id: selectedPatient.id,
         medicines: medicines,
         diet_instructions: diet,
         lifestyle_advice: lifestyle,
-        follow_up_days: followUpDays ? Number(followUpDays) : 7
-      }]);
+        follow_up_days: followUpDays ? Number(followUpDays) : 7,
+        created_at: new Date().toISOString()
+      };
 
+      const { data, error } = await supabase.from("prescriptions").insert([newRx]).select().single();
       if (error) throw error;
+
+      setCurrentPrescription(data || newRx);
       setPrescriptionMsg("✅ पर्चा सफलतापूर्वक सहेजा गया!");
+      setTimeout(() => setScreen("printPreview"), 800);
     } catch (err) {
       setPrescriptionMsg("❌ एरर: " + err.message);
     } finally {
       setSavingPrescription(false);
+    }
+  }
+
+  async function fetchPatientPrescriptions() {
+    if (!selectedPatient?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from("prescriptions")
+        .select("*")
+        .eq("patient_id", selectedPatient.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setSavedPrescriptions(data || []);
+      setScreen("prescriptionList");
+    } catch (err) {
+      alert("पर्चा लोड करने में समस्या: " + err.message);
     }
   }
 
@@ -234,21 +233,21 @@ export default function Home() {
   if (screen === "home") {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "24px", fontFamily: "Arial, sans-serif" }}>
-        <h1 style={{ color: "#2e7d32" }}>🌿 Tathastu</h1>
-        <h2 style={{ fontSize: "20px" }}>आयुर्वेद चिकित्सा सहायक</h2>
-        <h3 style={{ fontSize: "16px", color: "#555" }}>वैद्य डेस्क</h3>
+        <h1 style={{ color: "#2e7d32", margin: "0 0 8px 0" }}>🌿 Tathastu</h1>
+        <h2 style={{ fontSize: "20px", margin: "0 0 4px 0" }}>आयुर्वेद चिकित्सा सहायक</h2>
+        <h3 style={{ fontSize: "16px", color: "#666", marginTop: 0 }}>वैद्य डेस्क</h3>
 
-        <div style={{ display: "grid", gap: "12px", maxWidth: "420px", marginTop: "20px" }}>
-          <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={() => setScreen("newPatient")}>
+        <div style={{ display: "grid", gap: "12px", maxWidth: "420px", marginTop: "24px" }}>
+          <button style={{ padding: "14px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500" }} onClick={() => setScreen("newPatient")}>
             ➕ नया रोगी
           </button>
-          <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={openPatientList}>
+          <button style={{ padding: "14px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500" }} onClick={openPatientList}>
             👤 रोगी सूची
           </button>
-          <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={openPatientList}>
+          <button style={{ padding: "14px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500" }} onClick={openPatientList}>
             📋 चिकित्सकीय परीक्षण (रोगी चुनें)
           </button>
-          <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={openPatientList}>
+          <button style={{ padding: "14px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500" }} onClick={openPatientList}>
             💊 चिकित्सा / Prescription (रोगी चुनें)
           </button>
         </div>
@@ -262,22 +261,22 @@ export default function Home() {
   if (screen === "newPatient") {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "24px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => { setMessage(""); setScreen("home"); }}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => { setMessage(""); setScreen("home"); }}>
           ← वापस
         </button>
         <h2>👤 नया रोगी पंजीकरण</h2>
         <div style={{ display: "grid", gap: "12px", maxWidth: "420px" }}>
-          <input style={{ padding: "10px" }} placeholder="रोगी का नाम" value={name} onChange={(e) => setName(e.target.value)} />
-          <input style={{ padding: "10px" }} placeholder="आयु" type="number" min="0" value={age} onChange={(e) => setAge(e.target.value)} />
-          <select style={{ padding: "10px" }} value={gender} onChange={(e) => setGender(e.target.value)}>
+          <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="रोगी का नाम" value={name} onChange={(e) => setName(e.target.value)} />
+          <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="आयु" type="number" min="0" value={age} onChange={(e) => setAge(e.target.value)} />
+          <select style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} value={gender} onChange={(e) => setGender(e.target.value)}>
             <option value="">लिंग चुनें</option>
             <option value="Male">पुरुष</option>
             <option value="Female">महिला</option>
             <option value="Other">अन्य</option>
           </select>
-          <input style={{ padding: "10px" }} placeholder="मोबाइल नंबर" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <textarea style={{ padding: "10px" }} placeholder="मुख्य शिकायत" rows="4" value={complaint} onChange={(e) => setComplaint(e.target.value)} />
-          <button style={{ padding: "12px", fontWeight: "bold", cursor: "pointer" }} onClick={savePatient} disabled={saving}>
+          <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="मोबाइल नंबर" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <textarea style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="मुख्य शिकायत" rows="4" value={complaint} onChange={(e) => setComplaint(e.target.value)} />
+          <button style={{ padding: "12px", fontWeight: "bold", cursor: "pointer", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px" }} onClick={savePatient} disabled={saving}>
             {saving ? "⏳ सहेजा जा रहा है..." : "💾 रोगी सहेजें"}
           </button>
           {message && <div style={{ padding: "12px", background: "#fff", borderRadius: "8px", fontWeight: "bold", border: "1px solid #ddd" }}>{message}</div>}
@@ -292,7 +291,7 @@ export default function Home() {
   if (screen === "patients") {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => setScreen("home")}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("home")}>
           ← वापस
         </button>
         <h2>👤 पंजीकृत रोगी सूची</h2>
@@ -334,7 +333,7 @@ export default function Home() {
     const p = selectedPatient;
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => setScreen("patients")}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("patients")}>
           ← रोगी सूची
         </button>
         <h2>👤 रोगी प्रोफाइल</h2>
@@ -349,16 +348,23 @@ export default function Home() {
 
           <button
             onClick={() => { setAssessmentMessage(""); setScreen("assessment"); }}
-            style={{ width: "100%", padding: "12px", marginBottom: "10px", cursor: "pointer", fontWeight: "bold" }}
+            style={{ width: "100%", padding: "12px", marginBottom: "10px", cursor: "pointer", fontWeight: "bold", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }}
           >
             📋 Clinical Assessment (चिकित्सकीय परीक्षण)
           </button>
 
           <button
             onClick={() => { setPrescriptionMsg(""); setScreen("prescription"); }}
-            style={{ width: "100%", padding: "12px", marginBottom: "10px", cursor: "pointer", fontWeight: "bold", background: "#e8f5e9", border: "1px solid #81c784" }}
+            style={{ width: "100%", padding: "12px", marginBottom: "10px", cursor: "pointer", fontWeight: "bold", background: "#e8f5e9", border: "1px solid #81c784", borderRadius: "6px" }}
           >
-            💊 Prescription (चिकित्सा पर्चा)
+            💊 नया Prescription (पर्चा बनाएँ)
+          </button>
+
+          <button
+            onClick={fetchPatientPrescriptions}
+            style={{ width: "100%", padding: "12px", cursor: "pointer", fontWeight: "bold", background: "#e3f2fd", border: "1px solid #90caf9", borderRadius: "6px" }}
+          >
+            📜 सहेजे गए पर्चे देखें / Print करें
           </button>
         </div>
       </main>
@@ -371,7 +377,7 @@ export default function Home() {
   if (screen === "assessment" && selectedPatient) {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => setScreen("profile")}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
           ← रोगी प्रोफाइल
         </button>
         <h2>🩺 चिकित्सकीय मूल्यांकन</h2>
@@ -421,12 +427,12 @@ export default function Home() {
   }
 
   // =========================
-  // 6. PRESCRIPTION SCREEN
+  // 6. PRESCRIPTION CREATE SCREEN
   // =========================
   if (screen === "prescription" && selectedPatient) {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => setScreen("profile")}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
           ← रोगी प्रोफाइल
         </button>
 
@@ -446,23 +452,23 @@ export default function Home() {
                 )}
               </div>
               <input
-                placeholder="औषधि नाम (उदा. महासुदर्शन वटी / गिलोय घनवटी)"
+                placeholder="औषधि नाम (उदा. महासुदर्शन वटी)"
                 value={m.name}
                 onChange={(e) => updateMedicineRow(idx, "name", e.target.value)}
-                style={{ width: "100%", padding: "8px", marginBottom: "6px", boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "8px", marginBottom: "6px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
               />
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
                 <input
                   placeholder="मात्रा (उदा. 1-1 वटी / 3g)"
                   value={m.dose}
                   onChange={(e) => updateMedicineRow(idx, "dose", e.target.value)}
-                  style={{ padding: "8px", boxSizing: "border-box" }}
+                  style={{ padding: "8px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
                 />
                 <input
                   placeholder="अनुपान (उदा. कोष्ण जल / शहद)"
                   value={m.anupana}
                   onChange={(e) => updateMedicineRow(idx, "anupana", e.target.value)}
-                  style={{ padding: "8px", boxSizing: "border-box" }}
+                  style={{ padding: "8px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
                 />
               </div>
             </div>
@@ -478,7 +484,7 @@ export default function Home() {
             rows="3"
             value={diet}
             onChange={(e) => setDiet(e.target.value)}
-            style={{ width: "100%", padding: "8px", marginBottom: "12px", boxSizing: "border-box" }}
+            style={{ width: "100%", padding: "8px", marginBottom: "12px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
           />
 
           <label style={{ display: "block", fontWeight: "bold", fontSize: "14px", marginBottom: "4px" }}>
@@ -488,7 +494,7 @@ export default function Home() {
             type="number"
             value={followUpDays}
             onChange={(e) => setFollowUpDays(e.target.value)}
-            style={{ width: "100px", padding: "8px", marginBottom: "16px" }}
+            style={{ width: "100px", padding: "8px", marginBottom: "16px", borderRadius: "4px", border: "1px solid #ccc" }}
           />
 
           <button
@@ -496,7 +502,7 @@ export default function Home() {
             disabled={savingPrescription}
             style={{ width: "100%", padding: "14px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "bold", fontSize: "16px", cursor: "pointer" }}
           >
-            {savingPrescription ? "⏳ सहेजा जा रहा है..." : "💾 प्रिस्क्रिप्शन सहेजें"}
+            {savingPrescription ? "⏳ सहेजा जा रहा है..." : "💾 प्रिस्क्रिप्शन सहेजें व देखें"}
           </button>
 
           {prescriptionMsg && (
@@ -504,6 +510,108 @@ export default function Home() {
               {prescriptionMsg}
             </div>
           )}
+        </div>
+      </main>
+    );
+  }
+
+  // =========================
+  // 7. SAVED PRESCRIPTION LIST SCREEN
+  // =========================
+  if (screen === "prescriptionList" && selectedPatient) {
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
+          ← रोगी प्रोफाइल
+        </button>
+        <h2>📜 सहेजे गए पर्चे ({selectedPatient.name})</h2>
+
+        {savedPrescriptions.length === 0 ? (
+          <p>कोई पुराना पर्चा नहीं मिला।</p>
+        ) : (
+          <div style={{ display: "grid", gap: "12px", maxWidth: "500px" }}>
+            {savedPrescriptions.map((rx, idx) => (
+              <div key={rx.id || idx} style={{ background: "#fff", padding: "14px", borderRadius: "8px", border: "1px solid #ddd" }}>
+                <div><strong>दिनांक:</strong> {new Date(rx.created_at).toLocaleDateString()}</div>
+                <div><strong>औषधियाँ:</strong> {rx.medicines?.length || 0} आइटम्स</div>
+                <button
+                  onClick={() => { setCurrentPrescription(rx); setScreen("printPreview"); }}
+                  style={{ marginTop: "10px", padding: "8px 14px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+                >
+                  👁️ पर्चा देखें / Print करें
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    );
+  }
+
+  // =========================
+  // 8. PRINT / PDF PREVIEW SCREEN
+  // =========================
+  if (screen === "printPreview" && selectedPatient && currentPrescription) {
+    const rx = currentPrescription;
+    return (
+      <main style={{ minHeight: "100vh", background: "#fff", padding: "20px", fontFamily: "Arial, sans-serif", maxWidth: "600px", margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }} className="no-print">
+          <button style={{ padding: "8px 14px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
+            ← वापस
+          </button>
+          <button style={{ padding: "10px 20px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }} onClick={() => window.print()}>
+            🖨️ Print / PDF करें
+          </button>
+        </div>
+
+        {/* Prescription Letterhead */}
+        <div style={{ border: "2px solid #2e7d32", padding: "20px", borderRadius: "8px" }}>
+          <div style={{ textAlign: "center", borderBottom: "2px solid #2e7d32", paddingBottom: "10px", marginBottom: "15px" }}>
+            <h2 style={{ margin: "0", color: "#2e7d32" }}>🌿 ततस्तु आयुर्वेद क्लिनिक</h2>
+            <p style={{ margin: "4px 0", fontSize: "13px", color: "#555" }}>विशेष आयुर्वेद चिकित्सा एवं परामर्श केंद्र</p>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", marginBottom: "12px", background: "#f9f9f9", padding: "8px", borderRadius: "6px" }}>
+            <div><strong>रोगी नाम:</strong> {selectedPatient.name}</div>
+            <div><strong>आयु/लिंग:</strong> {selectedPatient.age || "—"} वर्ष / {selectedPatient.gender || "—"}</div>
+            <div><strong>दिनांक:</strong> {new Date(rx.created_at || Date.now()).toLocaleDateString()}</div>
+          </div>
+
+          <h3 style={{ color: "#2e7d32", borderBottom: "1px solid #ddd", paddingBottom: "4px", marginTop: "15px" }}>Rx (औषधि निर्देश)</h3>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", marginTop: "8px" }}>
+            <thead>
+              <tr style={{ background: "#e8f5e9", textAlign: "left" }}>
+                <th style={{ padding: "6px", border: "1px solid #ddd" }}>क्र.</th>
+                <th style={{ padding: "6px", border: "1px solid #ddd" }}>औषधि नाम</th>
+                <th style={{ padding: "6px", border: "1px solid #ddd" }}>मात्रा</th>
+                <th style={{ padding: "6px", border: "1px solid #ddd" }}>अनुपान</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rx.medicines?.map((m, i) => (
+                <tr key={i}>
+                  <td style={{ padding: "6px", border: "1px solid #ddd" }}>{i + 1}</td>
+                  <td style={{ padding: "6px", border: "1px solid #ddd" }}><strong>{m.name}</strong></td>
+                  <td style={{ padding: "6px", border: "1px solid #ddd" }}>{m.dose}</td>
+                  <td style={{ padding: "6px", border: "1px solid #ddd" }}>{m.anupana}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {rx.diet_instructions && (
+            <div style={{ marginTop: "15px" }}>
+              <strong>🥗 पथ्यापथ्य निर्देश:</strong>
+              <p style={{ background: "#fafafa", padding: "8px", borderRadius: "4px", border: "1px solid #eee", margin: "4px 0" }}>{rx.diet_instructions}</p>
+            </div>
+          )}
+
+          <div style={{ marginTop: "20px", display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
+            <div><strong>पुनः परीक्षण (Follow-up):</strong> {rx.follow_up_days || 7} दिन बाद</div>
+            <div style={{ textAlign: "right", marginTop: "30px" }}>
+              <div style={{ borderTop: "1px solid #333", width: "150px", paddingTop: "4px" }}>वैद्य के हस्ताक्षर</div>
+            </div>
+          </div>
         </div>
       </main>
     );
