@@ -57,7 +57,7 @@ export default function Home() {
 
   // Prescription States
   const [medicines, setMedicines] = useState([
-    { name: "", dose: "", timing: "भोजन पश्चात (Post-Meal)", anupana: "कोष्ण जल (Lukewarm Water)" }
+    { name: "", dose: "", timing: "भोजन पश्चात", anupana: "कोष्ण जल" }
   ]);
   const [diet, setDiet] = useState("");
   const [lifestyle, setLifestyle] = useState("");
@@ -194,7 +194,7 @@ export default function Home() {
 
       setCurrentPrescription(data || newRx);
       setPrescriptionMsg("✅ पर्चा सफलतापूर्वक सहेजा गया!");
-      setTimeout(() => setScreen("printPreview"), 800);
+      setTimeout(() => setScreen("printPreview"), 600);
     } catch (err) {
       setPrescriptionMsg("❌ एरर: " + err.message);
     } finally {
@@ -228,14 +228,14 @@ export default function Home() {
   });
 
   // =========================
-  // 1. HOME SCREEN
+  // 1. HOME SCREEN (वैद्य डेस्क)
   // =========================
   if (screen === "home") {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "24px", fontFamily: "Arial, sans-serif" }}>
-        <h1 style={{ color: "#2e7d32", margin: "0 0 8px 0" }}>🌿 Tathastu</h1>
-        <h2 style={{ fontSize: "20px", margin: "0 0 4px 0" }}>आयुर्वेद चिकित्सा सहायक</h2>
-        <h3 style={{ fontSize: "16px", color: "#666", marginTop: 0 }}>वैद्य डेस्क</h3>
+        <h1 style={{ color: "#2e7d32", margin: "0 0 4px 0" }}>🌿 तथास्तु</h1>
+        <h2 style={{ fontSize: "18px", color: "#555", margin: "0 0 2px 0" }}>आयुर्वेद चिकित्सा सहायक</h2>
+        <h3 style={{ fontSize: "14px", color: "#777", marginTop: 0 }}>वैद्य डेस्क</h3>
 
         <div style={{ display: "grid", gap: "12px", maxWidth: "420px", marginTop: "24px" }}>
           <button style={{ padding: "14px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500" }} onClick={() => setScreen("newPatient")}>
@@ -432,190 +432,4 @@ export default function Home() {
   if (screen === "prescription" && selectedPatient) {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
-          ← रोगी प्रोफाइल
-        </button>
-
-        <h2>💊 आयुर्वेद चिकित्सा पर्चा (Rx)</h2>
-
-        <div style={{ background: "#fff", padding: "18px", borderRadius: "12px", maxWidth: "550px", border: "1px solid #ddd" }}>
-          <h3 style={{ margin: "0 0 10px 0" }}>👤 {selectedPatient.name} ({selectedPatient.age || "—"} वर्ष | {selectedPatient.gender || "—"})</h3>
-          <hr style={{ margin: "12px 0" }} />
-
-          <h4 style={{ color: "#2e7d32", marginBottom: "8px" }}>🌿 औषधियाँ (Medicines)</h4>
-          {medicines.map((m, idx) => (
-            <div key={idx} style={{ background: "#f9f9f9", padding: "12px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #eee" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-                <strong>औषधि #{idx + 1}</strong>
-                {medicines.length > 1 && (
-                  <button onClick={() => removeMedicineRow(idx)} style={{ color: "red", border: "none", background: "none", cursor: "pointer", fontWeight: "bold" }}>✕ हटाएं</button>
-                )}
-              </div>
-              <input
-                placeholder="औषधि नाम (उदा. महासुदर्शन वटी)"
-                value={m.name}
-                onChange={(e) => updateMedicineRow(idx, "name", e.target.value)}
-                style={{ width: "100%", padding: "8px", marginBottom: "6px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
-              />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                <input
-                  placeholder="मात्रा (उदा. 1-1 वटी / 3g)"
-                  value={m.dose}
-                  onChange={(e) => updateMedicineRow(idx, "dose", e.target.value)}
-                  style={{ padding: "8px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
-                />
-                <input
-                  placeholder="अनुपान (उदा. कोष्ण जल / शहद)"
-                  value={m.anupana}
-                  onChange={(e) => updateMedicineRow(idx, "anupana", e.target.value)}
-                  style={{ padding: "8px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
-                />
-              </div>
-            </div>
-          ))}
-
-          <button onClick={addMedicineRow} style={{ padding: "8px 12px", marginBottom: "16px", cursor: "pointer", background: "#e0e0e0", border: "1px solid #ccc", borderRadius: "6px" }}>
-            ➕ अन्य औषधि जोड़ें
-          </button>
-
-          <h4 style={{ color: "#2e7d32", marginTop: "10px" }}>🥗 पथ्यापथ्य (आहार-विहार निर्देश)</h4>
-          <textarea
-            placeholder="पथ्य / अपथ्य निर्देश..."
-            rows="3"
-            value={diet}
-            onChange={(e) => setDiet(e.target.value)}
-            style={{ width: "100%", padding: "8px", marginBottom: "12px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
-          />
-
-          <label style={{ display: "block", fontWeight: "bold", fontSize: "14px", marginBottom: "4px" }}>
-            🔄 पुनः परीक्षण (Follow-up दिन बाद):
-          </label>
-          <input
-            type="number"
-            value={followUpDays}
-            onChange={(e) => setFollowUpDays(e.target.value)}
-            style={{ width: "100px", padding: "8px", marginBottom: "16px", borderRadius: "4px", border: "1px solid #ccc" }}
-          />
-
-          <button
-            onClick={savePrescription}
-            disabled={savingPrescription}
-            style={{ width: "100%", padding: "14px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "bold", fontSize: "16px", cursor: "pointer" }}
-          >
-            {savingPrescription ? "⏳ सहेजा जा रहा है..." : "💾 प्रिस्क्रिप्शन सहेजें व देखें"}
-          </button>
-
-          {prescriptionMsg && (
-            <div style={{ marginTop: "12px", padding: "10px", background: "#f0f0f0", borderRadius: "8px", fontWeight: "bold" }}>
-              {prescriptionMsg}
-            </div>
-          )}
-        </div>
-      </main>
-    );
-  }
-
-  // =========================
-  // 7. SAVED PRESCRIPTION LIST SCREEN
-  // =========================
-  if (screen === "prescriptionList" && selectedPatient) {
-    return (
-      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
-          ← रोगी प्रोफाइल
-        </button>
-        <h2>📜 सहेजे गए पर्चे ({selectedPatient.name})</h2>
-
-        {savedPrescriptions.length === 0 ? (
-          <p>कोई पुराना पर्चा नहीं मिला।</p>
-        ) : (
-          <div style={{ display: "grid", gap: "12px", maxWidth: "500px" }}>
-            {savedPrescriptions.map((rx, idx) => (
-              <div key={rx.id || idx} style={{ background: "#fff", padding: "14px", borderRadius: "8px", border: "1px solid #ddd" }}>
-                <div><strong>दिनांक:</strong> {new Date(rx.created_at).toLocaleDateString()}</div>
-                <div><strong>औषधियाँ:</strong> {rx.medicines?.length || 0} आइटम्स</div>
-                <button
-                  onClick={() => { setCurrentPrescription(rx); setScreen("printPreview"); }}
-                  style={{ marginTop: "10px", padding: "8px 14px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
-                >
-                  👁️ पर्चा देखें / Print करें
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </main>
-    );
-  }
-
-  // =========================
-  // 8. PRINT / PDF PREVIEW SCREEN
-  // =========================
-  if (screen === "printPreview" && selectedPatient && currentPrescription) {
-    const rx = currentPrescription;
-    return (
-      <main style={{ minHeight: "100vh", background: "#fff", padding: "20px", fontFamily: "Arial, sans-serif", maxWidth: "600px", margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }} className="no-print">
-          <button style={{ padding: "8px 14px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
-            ← वापस
-          </button>
-          <button style={{ padding: "10px 20px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }} onClick={() => window.print()}>
-            🖨️ Print / PDF करें
-          </button>
-        </div>
-
-        {/* Prescription Letterhead */}
-        <div style={{ border: "2px solid #2e7d32", padding: "20px", borderRadius: "8px" }}>
-          <div style={{ textAlign: "center", borderBottom: "2px solid #2e7d32", paddingBottom: "10px", marginBottom: "15px" }}>
-            <h2 style={{ margin: "0", color: "#2e7d32" }}>🌿 ततस्तु आयुर्वेद क्लिनिक</h2>
-            <p style={{ margin: "4px 0", fontSize: "13px", color: "#555" }}>विशेष आयुर्वेद चिकित्सा एवं परामर्श केंद्र</p>
-          </div>
-
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", marginBottom: "12px", background: "#f9f9f9", padding: "8px", borderRadius: "6px" }}>
-            <div><strong>रोगी नाम:</strong> {selectedPatient.name}</div>
-            <div><strong>आयु/लिंग:</strong> {selectedPatient.age || "—"} वर्ष / {selectedPatient.gender || "—"}</div>
-            <div><strong>दिनांक:</strong> {new Date(rx.created_at || Date.now()).toLocaleDateString()}</div>
-          </div>
-
-          <h3 style={{ color: "#2e7d32", borderBottom: "1px solid #ddd", paddingBottom: "4px", marginTop: "15px" }}>Rx (औषधि निर्देश)</h3>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", marginTop: "8px" }}>
-            <thead>
-              <tr style={{ background: "#e8f5e9", textAlign: "left" }}>
-                <th style={{ padding: "6px", border: "1px solid #ddd" }}>क्र.</th>
-                <th style={{ padding: "6px", border: "1px solid #ddd" }}>औषधि नाम</th>
-                <th style={{ padding: "6px", border: "1px solid #ddd" }}>मात्रा</th>
-                <th style={{ padding: "6px", border: "1px solid #ddd" }}>अनुपान</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rx.medicines?.map((m, i) => (
-                <tr key={i}>
-                  <td style={{ padding: "6px", border: "1px solid #ddd" }}>{i + 1}</td>
-                  <td style={{ padding: "6px", border: "1px solid #ddd" }}><strong>{m.name}</strong></td>
-                  <td style={{ padding: "6px", border: "1px solid #ddd" }}>{m.dose}</td>
-                  <td style={{ padding: "6px", border: "1px solid #ddd" }}>{m.anupana}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {rx.diet_instructions && (
-            <div style={{ marginTop: "15px" }}>
-              <strong>🥗 पथ्यापथ्य निर्देश:</strong>
-              <p style={{ background: "#fafafa", padding: "8px", borderRadius: "4px", border: "1px solid #eee", margin: "4px 0" }}>{rx.diet_instructions}</p>
-            </div>
-          )}
-
-          <div style={{ marginTop: "20px", display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
-            <div><strong>पुनः परीक्षण (Follow-up):</strong> {rx.follow_up_days || 7} दिन बाद</div>
-            <div style={{ textAlign: "right", marginTop: "30px" }}>
-              <div style={{ borderTop: "1px solid #333", width: "150px", paddingTop: "4px" }}>वैद्य के हस्ताक्षर</div>
-            </div>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  return null;
-}
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("prof
