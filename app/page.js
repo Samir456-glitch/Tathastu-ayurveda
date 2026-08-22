@@ -3,6 +3,51 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 
+// Ayurvedic Medicine Knowledge Base for Instant Auto-complete
+const AYURVEDIC_MEDICINES = [
+  "Abhrak Bhasma", "Amritarishta", "Amlaki Rasayana", "Arogyavardhini Vati", "Arshoghni Vati",
+  "Arvindasava", "Ashokarishta", "Ashwagandha Churna", "Ashwagandharishta", "Avipattikar Churna",
+  "Balarishta", "Brahmi Vati", "Brihat Vata Chintamani Ras", "Chandraprabha Vati", "Chitrakadi Vati",
+  "Chyawanprash", "Cystone", "Dashmularishta", "Diabecon", "Draksharishta", "Gandhak Rasayan",
+  "Gaspam", "Giloy Ghanvati", "Godanti Bhasma", "Gokshuradi Guggulu", "Hingwashtak Churna",
+  "Jatyadi Taila", "Kaishore Guggulu", "Kamdudha Ras", "Khadiradi Vati", "Krimimudgar Ras",
+  "Ksheerabala Taila", "Kumaryasava", "Lashunadi Vati", "Lavan Bhaskar Churna", "Liv.52",
+  "Lohasava", "Madhumeha Kusumakar Ras", "Mahabhringraj Taila", "Mahanarayan Taila", "Maharasnadi Kwath",
+  "Mahasudarshan Churna", "Mahasudarshan Vati", "Mahavat Vidhwansan Ras", "Manmath Ras", "Medohar Guggulu",
+  "Mukta Pishti", "Mukta Shukti Bhasma", "Panchamrit Parpati", "Panchatikta Ghrita Guggulu", "Pramehin",
+  "Praval Pishti", "Praisthak Vati", "Punarnava Mandur", "Punarnavarishta", "Pushyanug Churna",
+  "Rasnadi Guggulu", "Septilin", "Sanjivani Vati", "Saptamrit Lauh", "Saraswatarishta",
+  "Shankh Bhasma", "Shankh Vati", "Shatavari Churna", "Shilajitvadi Vati", "Sitopaladi Churna",
+  "Smritisagar Ras", "Sootshekhar Ras", "Sudershan Ghanvati", "Switran", "Talisadi Churna",
+  "Tribhuvan Kirti Ras", "Trikatu Churna", "Triphala Churna", "Triphala Ghrita", "Triphala Guggulu",
+  "Vasavaleha", "Vatgajankush Ras", "Vidangarishta", "Yogendra Ras", "Yograj Guggulu"
+];
+
+const ANUPANA_LIST = [
+  "कोष्ण जल (Lukewarm Water)",
+  "शहद (Honey)",
+  "दुग्ध / गोदुग्ध (Milk)",
+  "गोघृत (Cow's Ghee)",
+  "तक्र / छाछ (Buttermilk)",
+  "ताज़ा जल (Normal Water)",
+  "तुलसी स्वरस (Tulsi Juice)",
+  "अदरक स्वरस (Ginger Juice)",
+  "दशमूल क्वाथ",
+  "पुनर्नवा क्वाथ",
+  "बराबर मात्रा में जल (Equal Water)"
+];
+
+const COMMON_DOSES = [
+  "1-1 वटी दिन में दो बार",
+  "2-2 वटी दिन में दो बार",
+  "1 वटी दिन में तीन बार",
+  "3 ग्राम दिन में दो बार",
+  "5 ग्राम रात को सोते समय",
+  "15ml बराबर जल मिलाकर दो बार",
+  "20ml बराबर जल मिलाकर दो बार",
+  "यथावश्यक (As Needed)"
+];
+
 function AssessmentInput({ label, value, onChange, textarea = false }) {
   return (
     <div style={{ marginBottom: "12px" }}>
@@ -56,8 +101,9 @@ export default function Home() {
   const [assessmentMessage, setAssessmentMessage] = useState("");
 
   // Prescription States
+  const [attendingDoctor, setAttendingDoctor] = useState("वैद्य (ड्यूटी पर)");
   const [medicines, setMedicines] = useState([
-    { name: "", dose: "", timing: "भोजन पश्चात", anupana: "कोष्ण जल" }
+    { name: "", dose: "1-1 वटी दिन में दो बार", timing: "भोजन पश्चात", anupana: "कोष्ण जल (Lukewarm Water)" }
   ]);
   const [diet, setDiet] = useState("");
   const [lifestyle, setLifestyle] = useState("");
@@ -90,10 +136,11 @@ export default function Home() {
         complaint: complaint.trim() || null,
       };
 
-      const { error } = await supabase.from("patients").insert([patient]);
+      const { data, error } = await supabase.from("patients").insert([patient]).select().single();
       if (error) throw error;
 
-      setMessage("✅ रोगी सफलतापूर्वक सहेजा गया!");
+      const generatedId = data?.id ? `TAT-${data.id}` : "";
+      setMessage(`✅ रोगी सहेजा गया! ${generatedId ? `(UHID / रोगी ID: ${generatedId})` : ""}`);
       setName(""); setAge(""); setGender(""); setPhone(""); setComplaint("");
     } catch (error) {
       setMessage("❌ Save Error: " + (error?.message || "Failed"));
@@ -162,7 +209,7 @@ export default function Home() {
   // PRESCRIPTION HELPERS
   // =========================
   const addMedicineRow = () => {
-    setMedicines([...medicines, { name: "", dose: "", timing: "भोजन पश्चात", anupana: "कोष्ण जल" }]);
+    setMedicines([...medicines, { name: "", dose: "1-1 वटी दिन में दो बार", timing: "भोजन पश्चात", anupana: "कोष्ण जल (Lukewarm Water)" }]);
   };
 
   const updateMedicineRow = (index, field, val) => {
@@ -185,7 +232,7 @@ export default function Home() {
         patient_id: selectedPatient.id,
         medicines: medicines,
         diet_instructions: diet,
-        lifestyle_advice: lifestyle,
+        lifestyle_advice: attendingDoctor, // store doctor name
         follow_up_days: followUpDays ? Number(followUpDays) : 7,
         created_at: new Date().toISOString()
       };
@@ -237,7 +284,7 @@ export default function Home() {
       const element = document.getElementById("printableArea");
       const opt = {
         margin: [8, 8, 8, 8],
-        filename: `${selectedPatient?.name || "Patient"}_पर्चा.pdf`,
+        filename: `${selectedPatient?.name || "Patient"}_TAT-${selectedPatient?.id || "Rx"}_पर्चा.pdf`,
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
@@ -254,9 +301,11 @@ export default function Home() {
   function shareOnWhatsApp() {
     if (!selectedPatient || !currentPrescription) return;
     let text = `🌿 *तथास्तु आयुर्वेद क्लिनिक*\n\n`;
+    text += `*रोगी ID (UHID):* TAT-${selectedPatient.id}\n`;
     text += `*रोगी:* ${selectedPatient.name} (${selectedPatient.age || "—"}y / ${selectedPatient.gender || "—"})\n`;
-    text += `*दिनांक:* ${new Date(currentPrescription.created_at || Date.now()).toLocaleDateString()}\n\n`;
-    text += `📋 *Rx (औषधियाँ):*\n`;
+    text += `*दिनांक:* ${new Date(currentPrescription.created_at || Date.now()).toLocaleDateString()}\n`;
+    text += `*परामर्शक वैद्य:* ${currentPrescription.lifestyle_advice || attendingDoctor}\n\n`;
+    text += `📋 *Rx (औषधि निर्देश):*\n`;
     currentPrescription.medicines?.forEach((m, idx) => {
       text += `${idx + 1}. *${m.name}* - ${m.dose || ""} (${m.anupana ? "अनुपान: " + m.anupana : ""})\n`;
     });
@@ -269,16 +318,18 @@ export default function Home() {
     window.open(url, "_blank");
   }
 
-  // Filter
+  // Filter with ID, Name, Phone
   const searchText = search.toLowerCase().trim();
   const filteredPatients = patients.filter((p) => {
     const pName = (p.name || "").toLowerCase();
     const pPhone = (p.phone || "").toString();
-    return pName.includes(searchText) || pPhone.includes(searchText);
+    const pId = (p.id || "").toString();
+    const formattedId = `tat-${pId}`;
+    return pName.includes(searchText) || pPhone.includes(searchText) || pId.includes(searchText) || formattedId.includes(searchText);
   });
 
   // =========================
-  // 1. HOME SCREEN (Front Page with Tathastu)
+  // 1. HOME SCREEN
   // =========================
   if (screen === "home") {
     return (
@@ -287,12 +338,22 @@ export default function Home() {
         <h2 style={{ fontSize: "20px", margin: "0 0 4px 0" }}>आयुर्वेद चिकित्सा सहायक</h2>
         <h3 style={{ fontSize: "16px", color: "#666", marginTop: 0 }}>वैद्य डेस्क</h3>
 
-        <div style={{ display: "grid", gap: "12px", maxWidth: "420px", marginTop: "24px" }}>
+        {/* Quick Search on Home */}
+        <div style={{ maxWidth: "420px", marginTop: "16px", marginBottom: "8px" }}>
+          <input
+            type="text"
+            placeholder="🔍 रोगी ID (उदा. TAT-1), नाम या मोबाइल खोजें..."
+            onFocus={openPatientList}
+            style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1.5px solid #2e7d32", boxSizing: "border-box", background: "#fff", fontSize: "14px" }}
+          />
+        </div>
+
+        <div style={{ display: "grid", gap: "12px", maxWidth: "420px", marginTop: "16px" }}>
           <button style={{ padding: "14px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500" }} onClick={() => setScreen("newPatient")}>
             ➕ नया रोगी
           </button>
           <button style={{ padding: "14px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500" }} onClick={openPatientList}>
-            👤 रोगी सूची
+            👤 रोगी सूची व खोज (UHID / ID)
           </button>
           <button style={{ padding: "14px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500" }} onClick={openPatientList}>
             📋 चिकित्सकीय परीक्षण (रोगी चुनें)
@@ -327,7 +388,7 @@ export default function Home() {
           <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="मोबाइल नंबर" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
           <textarea style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="मुख्य शिकायत" rows="4" value={complaint} onChange={(e) => setComplaint(e.target.value)} />
           <button style={{ padding: "12px", fontWeight: "bold", cursor: "pointer", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px" }} onClick={savePatient} disabled={saving}>
-            {saving ? "⏳ सहेजा जा रहा है..." : "💾 रोगी सहेजें"}
+            {saving ? "⏳ सहेजा जा रहा है..." : "💾 रोगी सहेजें (Auto-ID जनरेट होगी)"}
           </button>
           {message && <div style={{ padding: "12px", background: "#fff", borderRadius: "8px", fontWeight: "bold", border: "1px solid #ddd" }}>{message}</div>}
         </div>
@@ -336,7 +397,7 @@ export default function Home() {
   }
 
   // =========================
-  // 3. PATIENT LIST SCREEN
+  // 3. PATIENT LIST SCREEN (With Instant ID Search)
   // =========================
   if (screen === "patients") {
     return (
@@ -344,13 +405,14 @@ export default function Home() {
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("home")}>
           ← वापस
         </button>
-        <h2>👤 पंजीकृत रोगी सूची</h2>
+        <h2>👤 पंजीकृत रोगी खोज व सूची</h2>
         <input
           type="text"
-          placeholder="🔎 नाम या मोबाइल नंबर से खोजें..."
+          placeholder="🔎 रोगी ID (उदा. TAT-1 या 1), नाम, या मोबाइल से खोजें..."
           value={search}
+          autoFocus
           onChange={(e) => setSearch(e.target.value)}
-          style={{ width: "100%", maxWidth: "480px", padding: "12px", marginBottom: "16px", boxSizing: "border-box", borderRadius: "6px", border: "1px solid #ccc" }}
+          style={{ width: "100%", maxWidth: "480px", padding: "12px", marginBottom: "16px", boxSizing: "border-box", borderRadius: "8px", border: "2px solid #2e7d32", fontSize: "15px" }}
         />
         {loadingPatients ? (
           <p>⏳ लोड हो रहा है...</p>
@@ -362,9 +424,14 @@ export default function Home() {
               <div
                 key={p.id}
                 onClick={() => { setSelectedPatient(p); setScreen("profile"); }}
-                style={{ padding: "14px", background: "#fff", border: "1px solid #ddd", borderRadius: "10px", cursor: "pointer" }}
+                style={{ padding: "14px", background: "#fff", border: "1px solid #ddd", borderRadius: "10px", cursor: "pointer", position: "relative" }}
               >
-                <div style={{ fontWeight: "bold", fontSize: "16px" }}>👤 {p.name}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontWeight: "bold", fontSize: "16px", color: "#222" }}>👤 {p.name}</div>
+                  <span style={{ background: "#e8f5e9", color: "#2e7d32", padding: "2px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: "bold" }}>
+                    ID: TAT-{p.id}
+                  </span>
+                </div>
                 <div style={{ fontSize: "14px", color: "#555", marginTop: "4px" }}>आयु: {p.age || "—"} | {p.gender || "—"}</div>
                 <div style={{ fontSize: "14px", color: "#555" }}>📱 {p.phone || "—"}</div>
                 <div style={{ fontSize: "14px", color: "#333", marginTop: "4px" }}>🩺 {p.complaint || "कोई शिकायत नहीं"}</div>
@@ -388,9 +455,13 @@ export default function Home() {
         </button>
         <h2>👤 रोगी प्रोफाइल</h2>
         <div style={{ background: "#fff", borderRadius: "12px", padding: "18px", maxWidth: "480px", border: "1px solid #ddd" }}>
-          <h3 style={{ marginTop: 0 }}>{p.name}</h3>
-          <p><strong>आयु:</strong> {p.age || "—"}</p>
-          <p><strong>लिंग:</strong> {p.gender || "—"}</p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0 }}>{p.name}</h3>
+            <span style={{ background: "#2e7d32", color: "#fff", padding: "3px 10px", borderRadius: "6px", fontSize: "13px", fontWeight: "bold" }}>
+              UHID: TAT-{p.id}
+            </span>
+          </div>
+          <p style={{ marginTop: "12px" }}><strong>आयु:</strong> {p.age || "—"} | <strong>लिंग:</strong> {p.gender || "—"}</p>
           <p><strong>मोबाइल:</strong> {p.phone || "—"}</p>
           <p><strong>मुख्य शिकायत:</strong><br />{p.complaint || "—"}</p>
 
@@ -432,8 +503,11 @@ export default function Home() {
         </button>
         <h2>🩺 चिकित्सकीय मूल्यांकन</h2>
         <div style={{ background: "#fff", padding: "18px", borderRadius: "12px", maxWidth: "520px", border: "1px solid #ddd" }}>
-          <h3 style={{ marginTop: 0 }}>👤 {selectedPatient.name}</h3>
-          <p style={{ color: "#666" }}>आयु: {selectedPatient.age || "—"} | {selectedPatient.gender || "—"}</p>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <h3 style={{ margin: 0 }}>👤 {selectedPatient.name}</h3>
+            <span style={{ color: "#2e7d32", fontWeight: "bold" }}>TAT-{selectedPatient.id}</span>
+          </div>
+          <p style={{ color: "#666", marginTop: "4px" }}>आयु: {selectedPatient.age || "—"} | {selectedPatient.gender || "—"}</p>
           <hr style={{ margin: "16px 0" }} />
 
           <h4 style={{ color: "#2e7d32" }}>🌿 आयुर्वेदिक मूलभूत परीक्षा</h4>
@@ -477,11 +551,24 @@ export default function Home() {
   }
 
   // =========================
-  // 6. PRESCRIPTION CREATE SCREEN
+  // 6. PRESCRIPTION CREATE SCREEN (Auto-Complete Suggestions Included)
   // =========================
   if (screen === "prescription" && selectedPatient) {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
+        {/* Datalists for Auto-complete */}
+        <datalist id="ayurvedaMedicines">
+          {AYURVEDIC_MEDICINES.map((med, i) => <option key={i} value={med} />)}
+        </datalist>
+
+        <datalist id="anupanaOptions">
+          {ANUPANA_LIST.map((anp, i) => <option key={i} value={anp} />)}
+        </datalist>
+
+        <datalist id="doseOptions">
+          {COMMON_DOSES.map((d, i) => <option key={i} value={d} />)}
+        </datalist>
+
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
           ← रोगी प्रोफाइल
         </button>
@@ -489,10 +576,24 @@ export default function Home() {
         <h2>💊 आयुर्वेद चिकित्सा पर्चा (Rx)</h2>
 
         <div style={{ background: "#fff", padding: "18px", borderRadius: "12px", maxWidth: "550px", border: "1px solid #ddd" }}>
-          <h3 style={{ margin: "0 0 10px 0" }}>👤 {selectedPatient.name} ({selectedPatient.age || "—"} वर्ष | {selectedPatient.gender || "—"})</h3>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <h3 style={{ margin: "0 0 10px 0" }}>👤 {selectedPatient.name} ({selectedPatient.age || "—"}y / {selectedPatient.gender || "—"})</h3>
+            <span style={{ color: "#2e7d32", fontWeight: "bold" }}>TAT-{selectedPatient.id}</span>
+          </div>
+
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>👨‍⚕️ परामर्शक वैद्य (Attending Doctor):</label>
+            <input
+              value={attendingDoctor}
+              onChange={(e) => setAttendingDoctor(e.target.value)}
+              placeholder="वैद्य का नाम..."
+              style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box" }}
+            />
+          </div>
+
           <hr style={{ margin: "12px 0" }} />
 
-          <h4 style={{ color: "#2e7d32", marginBottom: "8px" }}>🌿 औषधियाँ (Medicines)</h4>
+          <h4 style={{ color: "#2e7d32", marginBottom: "8px" }}>🌿 औषधियाँ (टाइप करते ही सुझाव मिलेंगे)</h4>
           {medicines.map((m, idx) => (
             <div key={idx} style={{ background: "#f9f9f9", padding: "12px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #eee" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
@@ -501,21 +602,26 @@ export default function Home() {
                   <button onClick={() => removeMedicineRow(idx)} style={{ color: "red", border: "none", background: "none", cursor: "pointer", fontWeight: "bold" }}>✕ हटाएं</button>
                 )}
               </div>
+              
               <input
-                placeholder="औषधि नाम (उदा. महासुदर्शन वटी)"
+                list="ayurvedaMedicines"
+                placeholder="🔍 औषधि नाम (उदा. Chandraprabha, Avipattikar...)"
                 value={m.name}
                 onChange={(e) => updateMedicineRow(idx, "name", e.target.value)}
                 style={{ width: "100%", padding: "8px", marginBottom: "6px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
               />
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
                 <input
-                  placeholder="मात्रा (उदा. 1-1 वटी / 3g)"
+                  list="doseOptions"
+                  placeholder="मात्रा (मात्रा चुनें / लिखें)"
                   value={m.dose}
                   onChange={(e) => updateMedicineRow(idx, "dose", e.target.value)}
                   style={{ padding: "8px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
                 />
                 <input
-                  placeholder="अनुपान (उदा. कोष्ण जल / शहद)"
+                  list="anupanaOptions"
+                  placeholder="अनुपान (अनुपान चुनें / लिखें)"
                   value={m.anupana}
                   onChange={(e) => updateMedicineRow(idx, "anupana", e.target.value)}
                   style={{ padding: "8px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
@@ -574,7 +680,7 @@ export default function Home() {
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
           ← रोगी प्रोफाइल
         </button>
-        <h2>📜 सहेजे गए पर्चे ({selectedPatient.name})</h2>
+        <h2>📜 सहेजे गए पर्चे ({selectedPatient.name} - TAT-{selectedPatient.id})</h2>
 
         {savedPrescriptions.length === 0 ? (
           <p>कोई पुराना पर्चा नहीं मिला।</p>
@@ -583,6 +689,7 @@ export default function Home() {
             {savedPrescriptions.map((rx, idx) => (
               <div key={rx.id || idx} style={{ background: "#fff", padding: "14px", borderRadius: "8px", border: "1px solid #ddd" }}>
                 <div><strong>दिनांक:</strong> {new Date(rx.created_at).toLocaleDateString()}</div>
+                <div><strong>परामर्शक वैद्य:</strong> {rx.lifestyle_advice || "वैद्य डेस्क"}</div>
                 <div><strong>औषधियाँ:</strong> {rx.medicines?.length || 0} आइटम्स</div>
                 <button
                   onClick={() => { setCurrentPrescription(rx); setScreen("printPreview"); }}
@@ -599,7 +706,7 @@ export default function Home() {
   }
 
   // =========================
-  // 8. PRINT / PDF PREVIEW SCREEN (तथास्तु आयुर्वेद क्लिनिक)
+  // 8. PRINT / PDF PREVIEW SCREEN (Letterhead)
   // =========================
   if (screen === "printPreview" && selectedPatient && currentPrescription) {
     const rx = currentPrescription;
@@ -627,7 +734,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Prescription Letterhead in Hindi */}
+        {/* Prescription Letterhead */}
         <div id="printableArea" style={{ border: "2px solid #2e7d32", padding: "20px", borderRadius: "10px", background: "#fff" }}>
           
           <div style={{ textAlign: "center", borderBottom: "2px solid #2e7d32", paddingBottom: "10px", marginBottom: "16px" }}>
@@ -635,8 +742,11 @@ export default function Home() {
             <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#555" }}>विशेष आयुर्वेद चिकित्सा एवं परामर्श केंद्र</p>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", fontSize: "12px", marginBottom: "16px", background: "#f4f9f4", padding: "8px 10px", borderRadius: "6px", border: "1px solid #c8e6c9" }}>
-            <div><strong>रोगी:</strong><br />{selectedPatient.name}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", fontSize: "12px", marginBottom: "16px", background: "#f4f9f4", padding: "8px 10px", borderRadius: "6px", border: "1px solid #c8e6c9" }}>
+            <div>
+              <strong>रोगी:</strong> {selectedPatient.name}<br />
+              <span style={{ color: "#2e7d32", fontWeight: "bold" }}>UHID: TAT-{selectedPatient.id}</span>
+            </div>
             <div><strong>आयु/लिंग:</strong><br />{selectedPatient.age || "—"} वर्ष / {selectedPatient.gender || "—"}</div>
             <div><strong>दिनांक:</strong><br />{new Date(rx.created_at || Date.now()).toLocaleDateString()}</div>
           </div>
@@ -648,8 +758,8 @@ export default function Home() {
               <tr style={{ background: "#e8f5e9", color: "#1b5e20", textAlign: "left" }}>
                 <th style={{ padding: "6px", border: "1px solid #c8e6c9", width: "30px", textAlign: "center" }}>#</th>
                 <th style={{ padding: "6px", border: "1px solid #c8e6c9" }}>औषधि नाम</th>
-                <th style={{ padding: "6px", border: "1px solid #c8e6c9", width: "90px" }}>मात्रा</th>
-                <th style={{ padding: "6px", border: "1px solid #c8e6c9", width: "110px" }}>अनुपान</th>
+                <th style={{ padding: "6px", border: "1px solid #c8e6c9", width: "120px" }}>मात्रा</th>
+                <th style={{ padding: "6px", border: "1px solid #c8e6c9", width: "130px" }}>अनुपान</th>
               </tr>
             </thead>
             <tbody>
@@ -681,7 +791,10 @@ export default function Home() {
               </span>
             </div>
             <div style={{ textAlign: "center" }}>
-              <div style={{ borderTop: "1px dashed #444", width: "130px", paddingTop: "4px", fontWeight: "bold" }}>
+              <div style={{ color: "#555", fontSize: "12px", marginBottom: "2px" }}>
+                {rx.lifestyle_advice || attendingDoctor}
+              </div>
+              <div style={{ borderTop: "1px dashed #444", width: "140px", paddingTop: "4px", fontWeight: "bold" }}>
                 हस्ताक्षर (वैद्य)
               </div>
             </div>
