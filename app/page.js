@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 
-// Helper component for clean input fields
 function AssessmentInput({ label, value, onChange, textarea = false }) {
   return (
     <div style={{ marginBottom: "12px" }}>
@@ -56,7 +55,6 @@ export default function Home() {
     ama: "",
     prakriti: "",
     vikriti: "",
-
     ashtavidha_nadi: "",
     ashtavidha_mutra: "",
     ashtavidha_mala: "",
@@ -65,22 +63,29 @@ export default function Home() {
     ashtavidha_sparsha: "",
     ashtavidha_drik: "",
     ashtavidha_akriti: "",
-
     samprapti: "",
     diagnosis: "",
     treatment_plan: "",
     clinical_notes: "",
   });
-
   const [savingAssessment, setSavingAssessment] = useState(false);
   const [assessmentMessage, setAssessmentMessage] = useState("");
+
+  // Prescription States
+  const [medicines, setMedicines] = useState([
+    { name: "", dose: "", timing: "भोजन पश्चात (Post-Meal)", anupana: "कोष्ण जल (Lukewarm Water)" }
+  ]);
+  const [diet, setDiet] = useState("");
+  const [lifestyle, setLifestyle] = useState("");
+  const [followUpDays, setFollowUpDays] = useState("7");
+  const [savingPrescription, setSavingPrescription] = useState(false);
+  const [prescriptionMsg, setPrescriptionMsg] = useState("");
 
   // =========================
   // SAVE PATIENT
   // =========================
   async function savePatient() {
     setMessage("");
-
     if (!name.trim()) {
       setMessage("⚠️ रोगी का नाम भरना जरूरी है।");
       return;
@@ -98,17 +103,8 @@ export default function Home() {
         complaint: complaint.trim() || null,
       };
 
-      const { data, error } = await supabase
-        .from("patients")
-        .insert([patient])
-        .select()
-        .single();
-
-      if (error) {
-        console.error("SUPABASE ERROR:", error);
-        setMessage("❌ Save नहीं हुआ: " + error.message);
-        return;
-      }
+      const { error } = await supabase.from("patients").insert([patient]);
+      if (error) throw error;
 
       setMessage("✅ रोगी सफलतापूर्वक सहेजा गया!");
       setName("");
@@ -117,8 +113,7 @@ export default function Home() {
       setPhone("");
       setComplaint("");
     } catch (error) {
-      console.error("SAVE ERROR:", error);
-      setMessage("❌ Connection error: " + (error?.message || "Failed to fetch"));
+      setMessage("❌ Save Error: " + (error?.message || "Failed"));
     } finally {
       setSaving(false);
     }
@@ -135,23 +130,15 @@ export default function Home() {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error("PATIENT LIST ERROR:", error);
-        alert("रोगी सूची लोड नहीं हुई: " + error.message);
-        return;
-      }
+      if (error) throw error;
       setPatients(data || []);
     } catch (error) {
-      console.error(error);
-      alert("रोगी सूची लोड नहीं हुई: " + (error?.message || "Unknown error"));
+      alert("रोगी सूची लोड नहीं हुई: " + error.message);
     } finally {
       setLoadingPatients(false);
     }
   }
 
-  // =========================
-  // OPEN PATIENT LIST
-  // =========================
   function openPatientList() {
     setSearch("");
     setSelectedPatient(null);
@@ -159,84 +146,90 @@ export default function Home() {
     fetchPatients();
   }
 
-  // =========================
-  // ASSESSMENT FIELD UPDATE
-  // =========================
   function updateAssessment(field, value) {
-    setAssessment((previous) => ({
-      ...previous,
-      [field]: value,
-    }));
+    setAssessment((prev) => ({ ...prev, [field]: value }));
   }
 
   // =========================
-  // SAVE CLINICAL ASSESSMENT
+  // SAVE ASSESSMENT
   // =========================
   async function saveAssessment() {
-    if (!selectedPatient?.id) {
+    const pId = selectedPatient?.id;
+    if (!pId) {
       setAssessmentMessage("❌ रोगी का चयन नहीं हुआ है।");
       return;
     }
 
     setSavingAssessment(true);
-    setAssessmentMessage("⏳ Clinical Assessment सहेजा जा रहा है...");
+    setAssessmentMessage("⏳ Assessment सहेजा जा रहा है...");
 
     try {
       const assessmentData = {
-        patient_id: selectedPatient.id,
-        pulse: assessment.pulse,
-        dosha: assessment.dosha,
-        dhatu: assessment.dhatu,
-        mala: assessment.mala,
-        agni: assessment.agni,
-        ama: assessment.ama,
-        prakriti: assessment.prakriti,
-        vikriti: assessment.vikriti,
-        ashtavidha_nadi: assessment.ashtavidha_nadi,
-        ashtavidha_mutra: assessment.ashtavidha_mutra,
-        ashtavidha_mala: assessment.ashtavidha_mala,
-        ashtavidha_jihwa: assessment.ashtavidha_jihwa,
-        ashtavidha_shabda: assessment.ashtavidha_shabda,
-        ashtavidha_sparsha: assessment.ashtavidha_sparsha,
-        ashtavidha_drik: assessment.ashtavidha_drik,
-        ashtavidha_akriti: assessment.ashtavidha_akriti,
-        samprapti: assessment.samprapti,
-        diagnosis: assessment.diagnosis,
-        treatment_plan: assessment.treatment_plan,
-        clinical_notes: assessment.clinical_notes,
+        patient_id: pId,
+        ...assessment
       };
 
-      const { error } = await supabase
-        .from("clinical_assessments")
-        .insert([assessmentData]);
-
-      if (error) {
-        console.error("ASSESSMENT ERROR:", error);
-        setAssessmentMessage("❌ Assessment save नहीं हुआ: " + error.message);
-        return;
-      }
+      const { error } = await supabase.from("clinical_assessments").insert([assessmentData]);
+      if (error) throw error;
 
       setAssessmentMessage("✅ Clinical Assessment सफलतापूर्वक सहेजा गया!");
     } catch (error) {
-      console.error(error);
-      setAssessmentMessage("❌ Error: " + (error?.message || "Unknown error"));
+      setAssessmentMessage("❌ Error: " + error.message);
     } finally {
       setSavingAssessment(false);
     }
   }
 
   // =========================
-  // FILTER PATIENTS
+  // PRESCRIPTION HELPERS
   // =========================
+  const addMedicineRow = () => {
+    setMedicines([...medicines, { name: "", dose: "", timing: "भोजन पश्चात", anupana: "कोष्ण जल" }]);
+  };
+
+  const updateMedicineRow = (index, field, val) => {
+    const updated = [...medicines];
+    updated[index][field] = val;
+    setMedicines(updated);
+  };
+
+  const removeMedicineRow = (index) => {
+    setMedicines(medicines.filter((_, i) => i !== index));
+  };
+
+  async function savePrescription() {
+    if (!selectedPatient?.id) return;
+    setSavingPrescription(true);
+    setPrescriptionMsg("⏳ पर्चा सहेजा जा रहा है...");
+
+    try {
+      const { error } = await supabase.from("prescriptions").insert([{
+        patient_id: selectedPatient.id,
+        medicines: medicines,
+        diet_instructions: diet,
+        lifestyle_advice: lifestyle,
+        follow_up_days: followUpDays ? Number(followUpDays) : 7
+      }]);
+
+      if (error) throw error;
+      setPrescriptionMsg("✅ पर्चा सफलतापूर्वक सहेजा गया!");
+    } catch (err) {
+      setPrescriptionMsg("❌ एरर: " + err.message);
+    } finally {
+      setSavingPrescription(false);
+    }
+  }
+
+  // Filter
   const searchText = search.toLowerCase().trim();
   const filteredPatients = patients.filter((p) => {
-    const patientName = (p.name || "").toLowerCase();
-    const patientPhone = (p.phone || "").toString();
-    return patientName.includes(searchText) || patientPhone.includes(searchText);
+    const pName = (p.name || "").toLowerCase();
+    const pPhone = (p.phone || "").toString();
+    return pName.includes(searchText) || pPhone.includes(searchText);
   });
 
   // =========================
-  // HOME SCREEN
+  // 1. HOME SCREEN
   // =========================
   if (screen === "home") {
     return (
@@ -249,25 +242,14 @@ export default function Home() {
           <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={() => setScreen("newPatient")}>
             ➕ नया रोगी
           </button>
-
           <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={openPatientList}>
             👤 रोगी सूची
           </button>
-
           <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={openPatientList}>
             📋 चिकित्सकीय परीक्षण (रोगी चुनें)
           </button>
-
           <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={openPatientList}>
-            💊 चिकित्सा / Prescription
-          </button>
-
-          <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={() => alert("शीघ्र उपलब्ध होगा")}>
-            🔄 अनुवर्तन (Follow-up)
-          </button>
-
-          <button style={{ padding: "12px", fontSize: "15px", cursor: "pointer" }} onClick={() => alert("शीघ्र उपलब्ध होगा")}>
-            🚨 आपातकाल / Referral
+            💊 चिकित्सा / Prescription (रोगी चुनें)
           </button>
         </div>
       </main>
@@ -275,7 +257,7 @@ export default function Home() {
   }
 
   // =========================
-  // NEW PATIENT SCREEN
+  // 2. NEW PATIENT SCREEN
   // =========================
   if (screen === "newPatient") {
     return (
@@ -283,39 +265,29 @@ export default function Home() {
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => { setMessage(""); setScreen("home"); }}>
           ← वापस
         </button>
-
         <h2>👤 नया रोगी पंजीकरण</h2>
-
         <div style={{ display: "grid", gap: "12px", maxWidth: "420px" }}>
           <input style={{ padding: "10px" }} placeholder="रोगी का नाम" value={name} onChange={(e) => setName(e.target.value)} />
           <input style={{ padding: "10px" }} placeholder="आयु" type="number" min="0" value={age} onChange={(e) => setAge(e.target.value)} />
-
           <select style={{ padding: "10px" }} value={gender} onChange={(e) => setGender(e.target.value)}>
             <option value="">लिंग चुनें</option>
             <option value="Male">पुरुष</option>
             <option value="Female">महिला</option>
             <option value="Other">अन्य</option>
           </select>
-
           <input style={{ padding: "10px" }} placeholder="मोबाइल नंबर" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
           <textarea style={{ padding: "10px" }} placeholder="मुख्य शिकायत" rows="4" value={complaint} onChange={(e) => setComplaint(e.target.value)} />
-
           <button style={{ padding: "12px", fontWeight: "bold", cursor: "pointer" }} onClick={savePatient} disabled={saving}>
             {saving ? "⏳ सहेजा जा रहा है..." : "💾 रोगी सहेजें"}
           </button>
-
-          {message && (
-            <div style={{ padding: "12px", background: "#fff", borderRadius: "8px", fontWeight: "bold", border: "1px solid #ddd" }}>
-              {message}
-            </div>
-          )}
+          {message && <div style={{ padding: "12px", background: "#fff", borderRadius: "8px", fontWeight: "bold", border: "1px solid #ddd" }}>{message}</div>}
         </div>
       </main>
     );
   }
 
   // =========================
-  // PATIENT LIST SCREEN
+  // 3. PATIENT LIST SCREEN
   // =========================
   if (screen === "patients") {
     return (
@@ -323,9 +295,7 @@ export default function Home() {
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => setScreen("home")}>
           ← वापस
         </button>
-
         <h2>👤 पंजीकृत रोगी सूची</h2>
-
         <input
           type="text"
           placeholder="🔎 नाम या मोबाइल नंबर से खोजें..."
@@ -333,7 +303,6 @@ export default function Home() {
           onChange={(e) => setSearch(e.target.value)}
           style={{ width: "100%", maxWidth: "480px", padding: "12px", marginBottom: "16px", boxSizing: "border-box", borderRadius: "6px", border: "1px solid #ccc" }}
         />
-
         {loadingPatients ? (
           <p>⏳ लोड हो रहा है...</p>
         ) : filteredPatients.length === 0 ? (
@@ -343,16 +312,11 @@ export default function Home() {
             {filteredPatients.map((p) => (
               <div
                 key={p.id}
-                onClick={() => {
-                  setSelectedPatient(p);
-                  setScreen("profile");
-                }}
+                onClick={() => { setSelectedPatient(p); setScreen("profile"); }}
                 style={{ padding: "14px", background: "#fff", border: "1px solid #ddd", borderRadius: "10px", cursor: "pointer" }}
               >
                 <div style={{ fontWeight: "bold", fontSize: "16px" }}>👤 {p.name}</div>
-                <div style={{ fontSize: "14px", color: "#555", marginTop: "4px" }}>
-                  आयु: {p.age || "—"} | {p.gender || "—"}
-                </div>
+                <div style={{ fontSize: "14px", color: "#555", marginTop: "4px" }}>आयु: {p.age || "—"} | {p.gender || "—"}</div>
                 <div style={{ fontSize: "14px", color: "#555" }}>📱 {p.phone || "—"}</div>
                 <div style={{ fontSize: "14px", color: "#333", marginTop: "4px" }}>🩺 {p.complaint || "कोई शिकायत नहीं"}</div>
               </div>
@@ -364,19 +328,16 @@ export default function Home() {
   }
 
   // =========================
-  // PATIENT PROFILE SCREEN
+  // 4. PATIENT PROFILE SCREEN
   // =========================
   if (screen === "profile" && selectedPatient) {
     const p = selectedPatient;
-
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => setScreen("patients")}>
           ← रोगी सूची
         </button>
-
         <h2>👤 रोगी प्रोफाइल</h2>
-
         <div style={{ background: "#fff", borderRadius: "12px", padding: "18px", maxWidth: "480px", border: "1px solid #ddd" }}>
           <h3 style={{ marginTop: 0 }}>{p.name}</h3>
           <p><strong>आयु:</strong> {p.age || "—"}</p>
@@ -387,27 +348,17 @@ export default function Home() {
           <hr style={{ margin: "16px 0" }} />
 
           <button
-            onClick={() => {
-              setAssessmentMessage("");
-              setScreen("assessment");
-            }}
+            onClick={() => { setAssessmentMessage(""); setScreen("assessment"); }}
             style={{ width: "100%", padding: "12px", marginBottom: "10px", cursor: "pointer", fontWeight: "bold" }}
           >
             📋 Clinical Assessment (चिकित्सकीय परीक्षण)
           </button>
 
           <button
-            onClick={() => alert("प्रिस्क्रिप्शन मॉड्यूल शीघ्र आ रहा है")}
-            style={{ width: "100%", padding: "12px", marginBottom: "10px", cursor: "pointer" }}
+            onClick={() => { setPrescriptionMsg(""); setScreen("prescription"); }}
+            style={{ width: "100%", padding: "12px", marginBottom: "10px", cursor: "pointer", fontWeight: "bold", background: "#e8f5e9", border: "1px solid #81c784" }}
           >
-            💊 Prescription
-          </button>
-
-          <button
-            onClick={() => alert("अनुवर्तन हिस्ट्री शीघ्र आ रही है")}
-            style={{ width: "100%", padding: "12px", cursor: "pointer" }}
-          >
-            🔄 Follow-up History
+            💊 Prescription (चिकित्सा पर्चा)
           </button>
         </div>
       </main>
@@ -415,7 +366,7 @@ export default function Home() {
   }
 
   // =========================
-  // CLINICAL ASSESSMENT SCREEN
+  // 5. CLINICAL ASSESSMENT SCREEN
   // =========================
   if (screen === "assessment" && selectedPatient) {
     return (
@@ -423,13 +374,10 @@ export default function Home() {
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => setScreen("profile")}>
           ← रोगी प्रोफाइल
         </button>
-
         <h2>🩺 चिकित्सकीय मूल्यांकन</h2>
-
         <div style={{ background: "#fff", padding: "18px", borderRadius: "12px", maxWidth: "520px", border: "1px solid #ddd" }}>
           <h3 style={{ marginTop: 0 }}>👤 {selectedPatient.name}</h3>
           <p style={{ color: "#666" }}>आयु: {selectedPatient.age || "—"} | {selectedPatient.gender || "—"}</p>
-
           <hr style={{ margin: "16px 0" }} />
 
           <h4 style={{ color: "#2e7d32" }}>🌿 आयुर्वेदिक मूलभूत परीक्षा</h4>
@@ -455,8 +403,8 @@ export default function Home() {
           <h4 style={{ color: "#2e7d32", marginTop: "20px" }}>📋 रोग विवरण व निदान</h4>
           <AssessmentInput label="सम्प्राप्ति" value={assessment.samprapti} onChange={(v) => updateAssessment("samprapti", v)} textarea />
           <AssessmentInput label="निदान (Diagnosis)" value={assessment.diagnosis} onChange={(v) => updateAssessment("diagnosis", v)} textarea />
-          <AssessmentInput label="चिकित्सा योजना (Treatment Plan)" value={assessment.treatment_plan} onChange={(v) => updateAssessment("treatment_plan", v)} textarea />
-          <AssessmentInput label="चिकित्सकीय टिप्पणियाँ (Clinical Notes)" value={assessment.clinical_notes} onChange={(v) => updateAssessment("clinical_notes", v)} textarea />
+          <AssessmentInput label="चिकित्सा योजना" value={assessment.treatment_plan} onChange={(v) => updateAssessment("treatment_plan", v)} textarea />
+          <AssessmentInput label="चिकित्सकीय टिप्पणियाँ" value={assessment.clinical_notes} onChange={(v) => updateAssessment("clinical_notes", v)} textarea />
 
           <button
             onClick={saveAssessment}
@@ -466,9 +414,94 @@ export default function Home() {
             {savingAssessment ? "⏳ सहेजा जा रहा है..." : "💾 Assessment सहेजें"}
           </button>
 
-          {assessmentMessage && (
-            <div style={{ marginTop: "12px", padding: "12px", background: "#f0f0f0", borderRadius: "8px", fontWeight: "bold" }}>
-              {assessmentMessage}
+          {assessmentMessage && <div style={{ marginTop: "12px", padding: "12px", background: "#f0f0f0", borderRadius: "8px", fontWeight: "bold" }}>{assessmentMessage}</div>}
+        </div>
+      </main>
+    );
+  }
+
+  // =========================
+  // 6. PRESCRIPTION SCREEN
+  // =========================
+  if (screen === "prescription" && selectedPatient) {
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer" }} onClick={() => setScreen("profile")}>
+          ← रोगी प्रोफाइल
+        </button>
+
+        <h2>💊 आयुर्वेद चिकित्सा पर्चा (Rx)</h2>
+
+        <div style={{ background: "#fff", padding: "18px", borderRadius: "12px", maxWidth: "550px", border: "1px solid #ddd" }}>
+          <h3 style={{ margin: "0 0 10px 0" }}>👤 {selectedPatient.name} ({selectedPatient.age || "—"} वर्ष | {selectedPatient.gender || "—"})</h3>
+          <hr style={{ margin: "12px 0" }} />
+
+          <h4 style={{ color: "#2e7d32", marginBottom: "8px" }}>🌿 औषधियाँ (Medicines)</h4>
+          {medicines.map((m, idx) => (
+            <div key={idx} style={{ background: "#f9f9f9", padding: "12px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #eee" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                <strong>औषधि #{idx + 1}</strong>
+                {medicines.length > 1 && (
+                  <button onClick={() => removeMedicineRow(idx)} style={{ color: "red", border: "none", background: "none", cursor: "pointer", fontWeight: "bold" }}>✕ हटाएं</button>
+                )}
+              </div>
+              <input
+                placeholder="औषधि नाम (उदा. महासुदर्शन वटी / गिलोय घनवटी)"
+                value={m.name}
+                onChange={(e) => updateMedicineRow(idx, "name", e.target.value)}
+                style={{ width: "100%", padding: "8px", marginBottom: "6px", boxSizing: "border-box" }}
+              />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                <input
+                  placeholder="मात्रा (उदा. 1-1 वटी / 3g)"
+                  value={m.dose}
+                  onChange={(e) => updateMedicineRow(idx, "dose", e.target.value)}
+                  style={{ padding: "8px", boxSizing: "border-box" }}
+                />
+                <input
+                  placeholder="अनुपान (उदा. कोष्ण जल / शहद)"
+                  value={m.anupana}
+                  onChange={(e) => updateMedicineRow(idx, "anupana", e.target.value)}
+                  style={{ padding: "8px", boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+          ))}
+
+          <button onClick={addMedicineRow} style={{ padding: "8px 12px", marginBottom: "16px", cursor: "pointer", background: "#e0e0e0", border: "1px solid #ccc", borderRadius: "6px" }}>
+            ➕ अन्य औषधि जोड़ें
+          </button>
+
+          <h4 style={{ color: "#2e7d32", marginTop: "10px" }}>🥗 पथ्यापथ्य (आहार-विहार निर्देश)</h4>
+          <textarea
+            placeholder="पथ्य / अपथ्य निर्देश..."
+            rows="3"
+            value={diet}
+            onChange={(e) => setDiet(e.target.value)}
+            style={{ width: "100%", padding: "8px", marginBottom: "12px", boxSizing: "border-box" }}
+          />
+
+          <label style={{ display: "block", fontWeight: "bold", fontSize: "14px", marginBottom: "4px" }}>
+            🔄 पुनः परीक्षण (Follow-up दिन बाद):
+          </label>
+          <input
+            type="number"
+            value={followUpDays}
+            onChange={(e) => setFollowUpDays(e.target.value)}
+            style={{ width: "100px", padding: "8px", marginBottom: "16px" }}
+          />
+
+          <button
+            onClick={savePrescription}
+            disabled={savingPrescription}
+            style={{ width: "100%", padding: "14px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "bold", fontSize: "16px", cursor: "pointer" }}
+          >
+            {savingPrescription ? "⏳ सहेजा जा रहा है..." : "💾 प्रिस्क्रिप्शन सहेजें"}
+          </button>
+
+          {prescriptionMsg && (
+            <div style={{ marginTop: "12px", padding: "10px", background: "#f0f0f0", borderRadius: "8px", fontWeight: "bold" }}>
+              {prescriptionMsg}
             </div>
           )}
         </div>
