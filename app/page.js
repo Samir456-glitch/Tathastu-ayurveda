@@ -68,7 +68,6 @@ const COMMON_INVESTIGATIONS = [
   "USG Whole Abdomen", "Chest X-Ray (PA View)", "12-Lead ECG"
 ];
 
-// Helper functions for Date & Time Formatting
 function formatTime(isoStr) {
   if (!isoStr) return "—";
   return new Date(isoStr).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
@@ -121,6 +120,15 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
+  // Edit Patient State
+  const [editName, setEditName] = useState("");
+  const [editAge, setEditAge] = useState("");
+  const [editGender, setEditGender] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editComplaint, setEditComplaint] = useState("");
+  const [editingPatient, setEditingPatient] = useState(false);
+  const [editMsg, setEditMsg] = useState("");
+
   // Clinical Assessment
   const [assessment, setAssessment] = useState({
     pulse: "", dosha: "", dhatu: "", mala: "", agni: "", ama: "", prakriti: "", vikriti: "",
@@ -149,6 +157,7 @@ export default function Home() {
 
   // Follow-up States
   const [followUps, setFollowUps] = useState([]);
+  const [fuPhone, setFuPhone] = useState("");
   const [fuSymptomRelief, setFuSymptomRelief] = useState("50% सुधार");
   const [fuPulse, setFuPulse] = useState("");
   const [fuNewComplaints, setFuNewComplaints] = useState("");
@@ -156,9 +165,11 @@ export default function Home() {
   const [fuNextVisit, setFuNextVisit] = useState("7");
   const [savingFollowUp, setSavingFollowUp] = useState(false);
   const [followUpMsg, setFollowUpMsg] = useState("");
+  const [lastSavedFu, setLastSavedFu] = useState(null);
+  const [showSendPrompt, setShowSendPrompt] = useState(false);
 
   // =========================
-  // SAVE PATIENT (Registration with Timestamp)
+  // SAVE PATIENT
   // =========================
   async function savePatient() {
     setMessage("");
@@ -191,6 +202,58 @@ export default function Home() {
       setMessage("❌ Save Error: " + (error?.message || "Failed"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  // =========================
+  // EDIT PATIENT
+  // =========================
+  function startEditPatient() {
+    if (!selectedPatient) return;
+    setEditName(selectedPatient.name || "");
+    setEditAge(selectedPatient.age?.toString() || "");
+    setEditGender(selectedPatient.gender || "");
+    setEditPhone(selectedPatient.phone || "");
+    setEditComplaint(selectedPatient.complaint || "");
+    setEditMsg("");
+    setScreen("editPatient");
+  }
+
+  async function updatePatientDetails() {
+    if (!selectedPatient?.id) return;
+    if (!editName.trim()) {
+      setEditMsg("⚠️ रोगी का नाम आवश्यक है।");
+      return;
+    }
+
+    setEditingPatient(true);
+    setEditMsg("⏳ विवरण अपडेट किया जा रहा है...");
+
+    try {
+      const updatedData = {
+        name: editName.trim(),
+        age: editAge ? Number(editAge) : null,
+        gender: editGender || null,
+        phone: editPhone.trim() || null,
+        complaint: editComplaint.trim() || null
+      };
+
+      const { data, error } = await supabase
+        .from("patients")
+        .update(updatedData)
+        .eq("id", selectedPatient.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setSelectedPatient(data);
+      setEditMsg("✅ विवरण सफलतापूर्वक अपडेट हो गया!");
+      setTimeout(() => setScreen("profile"), 800);
+    } catch (err) {
+      setEditMsg("❌ Update Error: " + err.message);
+    } finally {
+      setEditingPatient(false);
     }
   }
 
@@ -288,7 +351,6 @@ export default function Home() {
     setInvestigations(investigations ? `${investigations}, ${test}` : test);
   };
 
-  // Consultation Completion with Timestamp
   async function savePrescription() {
     if (!selectedPatient?.id) return;
     setSavingPrescription(true);
@@ -337,11 +399,13 @@ export default function Home() {
   }
 
   // =========================
-  // FOLLOW-UP HELPERS
+  // FOLLOW-UP HELPERS & WHATSAPP
   // =========================
   async function fetchFollowUps() {
     if (!selectedPatient?.id) return;
     try {
+      setFuPhone(selectedPatient.phone || "");
+      setShowSendPrompt(false);
       const { data, error } = await supabase
         .from("follow_ups")
         .select("*")
@@ -373,16 +437,46 @@ export default function Home() {
         created_at: new Date().toISOString()
       };
 
-      const { error } = await supabase.from("follow_ups").insert([fuData]);
+      const { data, error } = await supabase.from("follow_ups").insert([fuData]).select().single();
       if (error) throw error;
 
+      setLastSavedFu(data || fuData);
       setFollowUpMsg("✅ Follow-up सफलतापूर्वक सहेजा गया!");
+      setShowSendPrompt(true);
       fetchFollowUps();
     } catch (err) {
       setFollowUpMsg("❌ Error: " + err.message);
     } finally {
       setSavingFollowUp(false);
     }
+  }
+
+  function shareFollowUpWhatsApp(fuItem, targetPhone = null) {
+    if (!selectedPatient) return;
+    const fu = fuItem || lastSavedFu || {
+      symptom_relief: fuSymptomRelief,
+      treatment_modification: fuTreatmentMod,
+      next_visit_days: fuNextVisit,
+      created_at: new Date().toISOString()
+    };
+
+    let text = `🌿 *तथास्तु आयुर्वेद क्लिनिक - अनुवर्तन (Follow-up Reminder)*\n\n`;
+    text += `*रोगी ID (UHID):* TAT-${selectedPatient.id}\n`;
+    text += `*रोगी नाम:* ${selectedPatient.name}\n`;
+    text += `*विज़िट दिनांक:* ${formatDate(fu.created_at)}\n`;
+    text += `*लक्षणात्मक सुधार:* ${fu.symptom_relief || "प्रगति पर"}\n`;
+    text += `*चिकित्सा निर्देश:* ${fu.treatment_modification || "पूर्वतः जारी रखें"}\n\n`;
+    text += `📅 *अगली विज़िट:* ${fu.next_visit_days || 7} दिन बाद क्लिनिक में उपस्थित हों।\n`;
+    text += `*परामर्शक वैद्य:* ${fu.attending_doctor || attendingDoctor}`;
+
+    const phoneToSend = targetPhone || fuPhone || selectedPatient.phone || "";
+    const rawPhone = phoneToSend.replace(/\D/g, "");
+    const formattedPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+    const url = formattedPhone 
+      ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(text)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+      
+    window.open(url, "_blank");
   }
 
   // =========================
@@ -529,7 +623,52 @@ export default function Home() {
   }
 
   // =========================
-  // 3. PATIENT LIST SCREEN
+  // 3. EDIT PATIENT SCREEN
+  // =========================
+  if (screen === "editPatient" && selectedPatient) {
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "24px", fontFamily: "Arial, sans-serif" }}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
+          ← वापस प्रोफाइल
+        </button>
+        <h2>✏️ रोगी विवरण सुधारें (TAT-{selectedPatient.id})</h2>
+        <div style={{ display: "grid", gap: "12px", maxWidth: "420px" }}>
+          <div>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>रोगी का नाम:</label>
+            <input style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} value={editName} onChange={(e) => setEditName(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>आयु:</label>
+            <input style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} type="number" min="0" value={editAge} onChange={(e) => setEditAge(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>लिंग:</label>
+            <select style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} value={editGender} onChange={(e) => setEditGender(e.target.value)}>
+              <option value="">लिंग चुनें</option>
+              <option value="Male">पुरुष</option>
+              <option value="Female">महिला</option>
+              <option value="Other">अन्य</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>मोबाइल नंबर:</label>
+            <input style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>मुख्य शिकायत:</label>
+            <textarea style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} rows="4" value={editComplaint} onChange={(e) => setEditComplaint(e.target.value)} />
+          </div>
+          <button style={{ padding: "12px", fontWeight: "bold", cursor: "pointer", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px" }} onClick={updatePatientDetails} disabled={editingPatient}>
+            {editingPatient ? "⏳ अपडेट हो रहा है..." : "💾 अपडेट करें"}
+          </button>
+          {editMsg && <div style={{ padding: "12px", background: "#fff", borderRadius: "8px", fontWeight: "bold", border: "1px solid #ddd" }}>{editMsg}</div>}
+        </div>
+      </main>
+    );
+  }
+
+  // =========================
+  // 4. PATIENT LIST SCREEN
   // =========================
   if (screen === "patients") {
     return (
@@ -578,7 +717,7 @@ export default function Home() {
   }
 
   // =========================
-  // 4. PATIENT PROFILE SCREEN
+  // 5. PATIENT PROFILE SCREEN
   // =========================
   if (screen === "profile" && selectedPatient) {
     const p = selectedPatient;
@@ -597,14 +736,21 @@ export default function Home() {
           </div>
 
           <div style={{ background: "#f9f9f9", padding: "8px 10px", borderRadius: "6px", margin: "10px 0", fontSize: "13px", color: "#555" }}>
-            <strong>🕒 पंजीकरण समय (Entry Time):</strong> {formatDate(p.created_at)} at {formatTime(p.created_at)}
+            <strong>🕒 पंजीकरण समय (Entry):</strong> {formatDate(p.created_at)} at {formatTime(p.created_at)}
           </div>
 
           <p style={{ margin: "6px 0" }}><strong>आयु:</strong> {p.age || "—"} | <strong>लिंग:</strong> {p.gender || "—"}</p>
           <p style={{ margin: "6px 0" }}><strong>मोबाइल:</strong> {p.phone || "—"}</p>
           <p style={{ margin: "6px 0" }}><strong>मुख्य शिकायत:</strong><br />{p.complaint || "—"}</p>
 
-          <hr style={{ margin: "16px 0" }} />
+          <button
+            onClick={startEditPatient}
+            style={{ width: "100%", padding: "8px", margin: "8px 0 14px 0", cursor: "pointer", background: "#fff", border: "1px solid #1976d2", color: "#1976d2", borderRadius: "6px", fontWeight: "bold", fontSize: "13px" }}
+          >
+            ✏️ रोगी विवरण सुधारें (Edit Profile)
+          </button>
+
+          <hr style={{ margin: "12px 0" }} />
 
           <button
             onClick={() => { setAssessmentMessage(""); setScreen("assessment"); }}
@@ -639,7 +785,7 @@ export default function Home() {
   }
 
   // =========================
-  // 5. CLINICAL ASSESSMENT SCREEN
+  // 6. CLINICAL ASSESSMENT SCREEN
   // =========================
   if (screen === "assessment" && selectedPatient) {
     return (
@@ -697,7 +843,7 @@ export default function Home() {
   }
 
   // =========================
-  // 6. PRESCRIPTION CREATE SCREEN
+  // 7. PRESCRIPTION CREATE SCREEN
   // =========================
   if (screen === "prescription" && selectedPatient) {
     return (
@@ -893,7 +1039,7 @@ export default function Home() {
   }
 
   // =========================
-  // 7. FOLLOW-UP TRACKER SCREEN
+  // 8. FOLLOW-UP TRACKER SCREEN (With Phone Edit & Choice Prompt)
   // =========================
   if (screen === "followUpScreen" && selectedPatient) {
     return (
@@ -906,6 +1052,18 @@ export default function Home() {
 
         <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "550px", marginBottom: "20px" }}>
           <h3 style={{ margin: "0 0 12px 0", color: "#2e7d32" }}>➕ नया Follow-up दर्ज करें</h3>
+
+          {/* Phone Number Input for Follow-up WhatsApp */}
+          <div style={{ marginBottom: "10px" }}>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>📱 रोगी का मोबाइल नंबर (WhatsApp के लिए):</label>
+            <input
+              type="tel"
+              value={fuPhone}
+              placeholder="10 अंकों का मोबाइल नंबर..."
+              onChange={(e) => setFuPhone(e.target.value)}
+              style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box" }}
+            />
+          </div>
 
           <div style={{ marginBottom: "10px" }}>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>📊 लक्षणात्मक सुधार (Symptom Relief):</label>
@@ -966,14 +1124,38 @@ export default function Home() {
           <button
             onClick={saveFollowUp}
             disabled={savingFollowUp}
-            style={{ width: "100%", padding: "12px", background: "#f57c00", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}
+            style={{ width: "100%", padding: "12px", background: "#f57c00", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "15px" }}
           >
             {savingFollowUp ? "⏳ सहेजा जा रहा है..." : "💾 Follow-up सहेजें"}
           </button>
 
-          {followUpMsg && <div style={{ marginTop: "10px", fontWeight: "bold" }}>{followUpMsg}</div>}
+          {/* WhatsApp Choice Prompt (Option to send or not) */}
+          {showSendPrompt && (
+            <div style={{ marginTop: "14px", padding: "12px", background: "#e8f5e9", border: "1.5px solid #81c784", borderRadius: "8px" }}>
+              <div style={{ fontWeight: "bold", color: "#2e7d32", marginBottom: "8px", fontSize: "14px" }}>
+                💬 क्या आप रोगी को WhatsApp पर Follow-up संदेश भेजना चाहते हैं?
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={() => shareFollowUpWhatsApp(null, fuPhone)}
+                  style={{ flex: 1, padding: "10px", background: "#25D366", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}
+                >
+                  📲 हाँ, WhatsApp भेजें
+                </button>
+                <button
+                  onClick={() => setShowSendPrompt(false)}
+                  style={{ flex: 1, padding: "10px", background: "#757575", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}
+                >
+                  ❌ नहीं, अभी न भेजें
+                </button>
+              </div>
+            </div>
+          )}
+
+          {followUpMsg && <div style={{ marginTop: "10px", fontWeight: "bold", color: "#2e7d32" }}>{followUpMsg}</div>}
         </div>
 
+        {/* Previous Follow-up Timeline */}
         <h3 style={{ color: "#333" }}>📜 पूर्व Follow-up इतिहास ({followUps.length})</h3>
         {followUps.length === 0 ? (
           <p>कोई पूर्व Follow-up रिकॉर्ड मौजूद नहीं है।</p>
@@ -989,7 +1171,15 @@ export default function Home() {
                 {fu.pulse && <div><strong>नाड़ी/स्थिति:</strong> {fu.pulse}</div>}
                 {fu.new_complaints && <div><strong>नई शिकायत:</strong> {fu.new_complaints}</div>}
                 <div><strong>निर्देश:</strong> {fu.treatment_modification}</div>
-                <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>परामर्शक वैद्य: {fu.attending_doctor || "—"} | अगली विज़िट: {fu.next_visit_days} दिन बाद</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px", paddingTop: "6px", borderTop: "1px dashed #eee" }}>
+                  <span style={{ fontSize: "12px", color: "#666" }}>अगली विज़िट: {fu.next_visit_days} दिन बाद</span>
+                  <button
+                    onClick={() => shareFollowUpWhatsApp(fu, fuPhone)}
+                    style={{ padding: "5px 10px", background: "#25D366", color: "#fff", border: "none", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
+                  >
+                    💬 WhatsApp भेजें
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -999,7 +1189,7 @@ export default function Home() {
   }
 
   // =========================
-  // 8. SAVED PRESCRIPTION LIST SCREEN
+  // 9. SAVED PRESCRIPTION LIST SCREEN
   // =========================
   if (screen === "prescriptionList" && selectedPatient) {
     return (
@@ -1037,11 +1227,10 @@ export default function Home() {
   }
 
   // =========================
-  // 9. PRINT / PDF PREVIEW SCREEN (With Entry & Exit Timestamps)
+  // 10. PRINT / PDF PREVIEW SCREEN
   // =========================
   if (screen === "printPreview" && selectedPatient && currentPrescription) {
     const rx = currentPrescription;
-    const entryDateStr = formatDate(selectedPatient.created_at);
     const entryTimeStr = formatTime(selectedPatient.created_at);
     const exitTimeStr = formatTime(rx.created_at);
     const consultDateStr = formatDate(rx.created_at);
@@ -1070,16 +1259,14 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Prescription Letterhead with Both Timestamps */}
+        {/* Prescription Letterhead */}
         <div id="printableArea" style={{ border: "2px solid #2e7d32", padding: "20px", borderRadius: "10px", background: "#fff" }}>
           
-          {/* Header */}
           <div style={{ textAlign: "center", borderBottom: "2px solid #2e7d32", paddingBottom: "10px", marginBottom: "14px" }}>
             <h1 style={{ margin: "0", color: "#2e7d32", fontSize: "24px" }}>🌿 तथास्तु आयुर्वेद क्लिनिक</h1>
             <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#555" }}>विशेष आयुर्वेद चिकित्सा एवं परामर्श केंद्र</p>
           </div>
 
-          {/* Patient Details & Exact Timestamps */}
           <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1.1fr", gap: "8px", fontSize: "12px", marginBottom: "14px", background: "#f4f9f4", padding: "8px 10px", borderRadius: "6px", border: "1px solid #c8e6c9" }}>
             <div>
               <strong>रोगी:</strong> {selectedPatient.name}<br />
@@ -1124,7 +1311,6 @@ export default function Home() {
             </tbody>
           </table>
 
-          {/* Investigations in Rx */}
           {rx.investigations && (
             <div style={{ marginTop: "10px", marginBottom: "12px" }}>
               <strong style={{ color: "#0277bd", fontSize: "13px" }}>🔬 आवश्यक जाँच (Investigations):</strong>
@@ -1134,7 +1320,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Diet Instructions */}
           {rx.diet_instructions && (
             <div style={{ marginTop: "10px", marginBottom: "14px" }}>
               <strong style={{ color: "#2e7d32", fontSize: "13px" }}>🥗 पथ्यापथ्य निर्देश:</strong>
@@ -1144,7 +1329,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Footer with Duty Vaidya & Sign */}
           <div style={{ marginTop: "24px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", fontSize: "13px" }}>
             <div>
               <strong>🔄 पुनः परीक्षण:</strong> 
