@@ -432,4 +432,228 @@ export default function Home() {
   if (screen === "prescription" && selectedPatient) {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("prof
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
+          ← रोगी प्रोफाइल
+        </button>
+
+        <h2>💊 आयुर्वेद चिकित्सा पर्चा (Rx)</h2>
+
+        <div style={{ background: "#fff", padding: "18px", borderRadius: "12px", maxWidth: "550px", border: "1px solid #ddd" }}>
+          <h3 style={{ margin: "0 0 10px 0" }}>👤 {selectedPatient.name} ({selectedPatient.age || "—"} वर्ष | {selectedPatient.gender || "—"})</h3>
+          <hr style={{ margin: "12px 0" }} />
+
+          <h4 style={{ color: "#2e7d32", marginBottom: "8px" }}>🌿 औषधियाँ (Medicines)</h4>
+          {medicines.map((m, idx) => (
+            <div key={idx} style={{ background: "#f9f9f9", padding: "12px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #eee" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                <strong>औषधि #{idx + 1}</strong>
+                {medicines.length > 1 && (
+                  <button onClick={() => removeMedicineRow(idx)} style={{ color: "red", border: "none", background: "none", cursor: "pointer", fontWeight: "bold" }}>✕ हटाएं</button>
+                )}
+              </div>
+              <input
+                placeholder="औषधि नाम (उदा. महासुदर्शन वटी)"
+                value={m.name}
+                onChange={(e) => updateMedicineRow(idx, "name", e.target.value)}
+                style={{ width: "100%", padding: "8px", marginBottom: "6px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
+              />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                <input
+                  placeholder="मात्रा (उदा. 1-1 वटी / 3g)"
+                  value={m.dose}
+                  onChange={(e) => updateMedicineRow(idx, "dose", e.target.value)}
+                  style={{ padding: "8px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
+                />
+                <input
+                  placeholder="अनुपान (उदा. कोष्ण जल / शहद)"
+                  value={m.anupana}
+                  onChange={(e) => updateMedicineRow(idx, "anupana", e.target.value)}
+                  style={{ padding: "8px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
+                />
+              </div>
+            </div>
+          ))}
+
+          <button onClick={addMedicineRow} style={{ padding: "8px 12px", marginBottom: "16px", cursor: "pointer", background: "#e0e0e0", border: "1px solid #ccc", borderRadius: "6px" }}>
+            ➕ अन्य औषधि जोड़ें
+          </button>
+
+          <h4 style={{ color: "#2e7d32", marginTop: "10px" }}>🥗 पथ्यापथ्य (आहार-विहार निर्देश)</h4>
+          <textarea
+            placeholder="पथ्य / अपथ्य निर्देश..."
+            rows="3"
+            value={diet}
+            onChange={(e) => setDiet(e.target.value)}
+            style={{ width: "100%", padding: "8px", marginBottom: "12px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
+          />
+
+          <label style={{ display: "block", fontWeight: "bold", fontSize: "14px", marginBottom: "4px" }}>
+            🔄 पुनः परीक्षण (Follow-up दिन बाद):
+          </label>
+          <input
+            type="number"
+            value={followUpDays}
+            onChange={(e) => setFollowUpDays(e.target.value)}
+            style={{ width: "100px", padding: "8px", marginBottom: "16px", borderRadius: "4px", border: "1px solid #ccc" }}
+          />
+
+          <button
+            onClick={savePrescription}
+            disabled={savingPrescription}
+            style={{ width: "100%", padding: "14px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "bold", fontSize: "16px", cursor: "pointer" }}
+          >
+            {savingPrescription ? "⏳ सहेजा जा रहा है..." : "💾 प्रिस्क्रिप्शन सहेजें व देखें"}
+          </button>
+
+          {prescriptionMsg && (
+            <div style={{ marginTop: "12px", padding: "10px", background: "#f0f0f0", borderRadius: "8px", fontWeight: "bold" }}>
+              {prescriptionMsg}
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+  // =========================
+  // 7. SAVED PRESCRIPTION LIST SCREEN
+  // =========================
+  if (screen === "prescriptionList" && selectedPatient) {
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
+          ← रोगी प्रोफाइल
+        </button>
+        <h2>📜 सहेजे गए पर्चे ({selectedPatient.name})</h2>
+
+        {savedPrescriptions.length === 0 ? (
+          <p>कोई पुराना पर्चा नहीं मिला।</p>
+        ) : (
+          <div style={{ display: "grid", gap: "12px", maxWidth: "500px" }}>
+            {savedPrescriptions.map((rx, idx) => (
+              <div key={rx.id || idx} style={{ background: "#fff", padding: "14px", borderRadius: "8px", border: "1px solid #ddd" }}>
+                <div><strong>दिनांक:</strong> {new Date(rx.created_at).toLocaleDateString()}</div>
+                <div><strong>औषधियाँ:</strong> {rx.medicines?.length || 0} आइटम्स</div>
+                <button
+                  onClick={() => { setCurrentPrescription(rx); setScreen("printPreview"); }}
+                  style={{ marginTop: "10px", padding: "8px 14px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+                >
+                  👁️ पर्चा देखें / Print करें
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    );
+  }
+
+  // =========================
+  // 8. PRINT / PDF PREVIEW SCREEN (Stylish & Clean Layout)
+  // =========================
+  if (screen === "printPreview" && selectedPatient && currentPrescription) {
+    const rx = currentPrescription;
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif", maxWidth: "680px", margin: "0 auto" }}>
+        <style dangerouslySetInnerHTML={{__html: `
+          @media print {
+            body {
+              background: #fff !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              -webkit-print-color-adjust: exact;
+            }
+            .no-print {
+              display: none !important;
+            }
+            #printableArea {
+              border: 2px solid #2e7d32 !important;
+              padding: 20px !important;
+              box-shadow: none !important;
+              width: 100% !important;
+              background: #fff !important;
+            }
+          }
+        `}} />
+
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }} className="no-print">
+          <button style={{ padding: "8px 14px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("profile")}>
+            ← रोगी प्रोफाइल
+          </button>
+          <button style={{ padding: "10px 20px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }} onClick={() => window.print()}>
+            🖨️ PDF सेव / Print करें
+          </button>
+        </div>
+
+        {/* Prescription Letterhead */}
+        <div id="printableArea" style={{ border: "2px solid #2e7d32", padding: "24px", borderRadius: "12px", background: "#fff", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
+          
+          {/* Clinic Header */}
+          <div style={{ textAlign: "center", borderBottom: "2px solid #2e7d32", paddingBottom: "12px", marginBottom: "18px" }}>
+            <h1 style={{ margin: "0", color: "#2e7d32", fontSize: "26px", letterSpacing: "0.5px" }}>🌿 तथास्तु आयुर्वेद क्लिनिक</h1>
+            <p style={{ margin: "6px 0 0 0", fontSize: "14px", color: "#555", fontWeight: "500" }}>विशेष आयुर्वेद चिकित्सा एवं परामर्श केंद्र</p>
+          </div>
+
+          {/* Patient Details Bar */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", fontSize: "13px", marginBottom: "18px", background: "#f4f9f4", padding: "10px 12px", borderRadius: "8px", border: "1px solid #c8e6c9" }}>
+            <div><strong>रोगी नाम:</strong><br />{selectedPatient.name}</div>
+            <div><strong>आयु / लिंग:</strong><br />{selectedPatient.age || "—"} वर्ष / {selectedPatient.gender || "—"}</div>
+            <div><strong>दिनांक:</strong><br />{new Date(rx.created_at || Date.now()).toLocaleDateString()}</div>
+          </div>
+
+          {/* Rx Section */}
+          <h3 style={{ color: "#2e7d32", borderBottom: "1px solid #2e7d32", paddingBottom: "6px", marginTop: "10px", fontSize: "18px" }}>Rx (औषधि निर्देश)</h3>
+          
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", marginTop: "10px", marginBottom: "15px" }}>
+            <thead>
+              <tr style={{ background: "#e8f5e9", color: "#1b5e20", textAlign: "left" }}>
+                <th style={{ padding: "8px", border: "1px solid #c8e6c9", width: "40px", textAlign: "center" }}>क्र.</th>
+                <th style={{ padding: "8px", border: "1px solid #c8e6c9" }}>औषधि नाम (Medicine Name)</th>
+                <th style={{ padding: "8px", border: "1px solid #c8e6c9", width: "100px" }}>मात्रा (Dose)</th>
+                <th style={{ padding: "8px", border: "1px solid #c8e6c9", width: "130px" }}>अनुपान (Anupana)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rx.medicines?.map((m, i) => (
+                <tr key={i}>
+                  <td style={{ padding: "8px", border: "1px solid #ddd", textAlign: "center" }}>{i + 1}</td>
+                  <td style={{ padding: "8px", border: "1px solid #ddd" }}><strong style={{ color: "#222" }}>{m.name}</strong></td>
+                  <td style={{ padding: "8px", border: "1px solid #ddd" }}>{m.dose || "—"}</td>
+                  <td style={{ padding: "8px", border: "1px solid #ddd" }}>{m.anupana || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Diet Instructions */}
+          {rx.diet_instructions && (
+            <div style={{ marginTop: "15px", marginBottom: "15px" }}>
+              <strong style={{ color: "#2e7d32", fontSize: "15px" }}>🥗 पथ्यापथ्य निर्देश (Diet & Lifestyle):</strong>
+              <div style={{ background: "#fcfcfc", padding: "10px 12px", borderRadius: "6px", border: "1px solid #e0e0e0", margin: "6px 0", fontSize: "14px", lineHeight: "1.5", color: "#333" }}>
+                {rx.diet_instructions}
+              </div>
+            </div>
+          )}
+
+          {/* Footer / Signatures */}
+          <div style={{ marginTop: "35px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", fontSize: "14px" }}>
+            <div>
+              <strong style={{ color: "#444" }}>🔄 पुनः परीक्षण (Follow-up):</strong> 
+              <span style={{ marginLeft: "6px", background: "#eef7ee", padding: "4px 8px", borderRadius: "4px", color: "#2e7d32", fontWeight: "bold" }}>
+                {rx.follow_up_days || 7} दिन बाद
+              </span>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ borderTop: "1.5px dashed #444", width: "160px", paddingTop: "6px", fontWeight: "bold", color: "#333" }}>
+                वैद्य के हस्ताक्षर
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    );
+  }
+
+  return null;
+}
