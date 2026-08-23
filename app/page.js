@@ -25,23 +25,22 @@ const DEFAULT_DOCTOR_SUGGESTIONS = [
 ];
 
 const COMMON_DIAGNOSIS_SUGGESTIONS = [
-  "अम्लपित्त (Hyperacidity / GERD)",
-  "संधिवात (Osteoarthritis)",
-  "आमवात (Rheumatoid Arthritis)",
-  "गृहणी दोष (IBS / Malabsorption)",
-  "प्रमेह (Diabetes Mellitus)",
-  "अर्श (Hemorrhoids / Piles)",
-  "कटीशूल (Lumbago / Sciatica)",
-  "कास व श्वास (Bronchial Asthma / Cough)",
-  "त्वक विकार / कुष्ठ (Skin Diseases)",
-  "यकृत विकार / कामला (Liver Disorders / Jaundice)",
-  "स्थौल्य (Obesity)",
-  "अग्निमांद्य / अजीर्ण (Indigestion)",
-  "वातव्याधि (Neurological / Musculoskeletal Disorders)",
-  "शिरःशूल (Migraine / Headache)",
-  "अनिद्रा (Insomnia / Stress)"
+  "Amalpitta / अम्लपित्त (Hyperacidity / GERD)",
+  "Sandhivata / संधिवात (Osteoarthritis)",
+  "Amavata / आमवात (Rheumatoid Arthritis)",
+  "Grahani / ग्रहणी दोष (IBS / Malabsorption)",
+  "Prameha / प्रमेह (Diabetes Mellitus)",
+  "Arsha / अर्श (Piles / Hemorrhoids)",
+  "Katishoola / कटीशूल (Back Pain / Sciatica)",
+  "Kasa & Shwasa / कास व श्वास (Cough / Asthma)",
+  "Twak Vikar / कुष्ठ / त्वक विकार (Skin Disease)",
+  "Kamala / यकृत विकार / कामला (Jaundice / Liver)",
+  "Sthaulya / स्थौल्य (Obesity / Weight Gain)",
+  "Ajeerna / अग्निमांद्य / अजीर्ण (Indigestion)",
+  "Vatavyadhi / वातव्याधि (Neurological / Pain)",
+  "Shirashoola / शिरःशूल (Headache / Migraine)",
+  "Anidra / अनिद्रा (Insomnia / Stress)"
 ];
-
 function formatTime(isoStr) {
   if (!isoStr) return "—";
   return new Date(isoStr).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
