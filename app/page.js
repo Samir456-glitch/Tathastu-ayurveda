@@ -151,12 +151,14 @@ export default function Home() {
   const [currentPrescription, setCurrentPrescription] = useState(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
-  // Pharmacy Queue & Dispensing States
+  // Pharmacy Queue & Dispensing States (Itemized with Custom Phone)
   const [pharmacyQueue, setPharmacyQueue] = useState([]);
   const [pharmacySearch, setPharmacySearch] = useState("");
   const [dispenseRx, setDispenseRx] = useState(null);
   const [dispensePatient, setDispensePatient] = useState(null);
-  const [medicineBillAmount, setMedicineBillAmount] = useState("");
+  const [dispenseItems, setDispenseItems] = useState([]);
+  const [dispensePhone, setDispensePhone] = useState("");
+  const [medicineBillAmount, setMedicineBillAmount] = useState("0");
   const [dispensePayMode, setDispensePayMode] = useState("Cash (नकद)");
   const [dispensing, setDispensing] = useState(false);
 
@@ -320,7 +322,6 @@ export default function Home() {
     }
   }
 
-  // Backup Data to CSV
   async function exportPatientsCSV() {
     try {
       const { data } = await supabase.from("patients").select("*").order("id", { ascending: true });
@@ -341,9 +342,6 @@ export default function Home() {
     }
   }
 
-  // =========================
-  // SAVE PATIENT (With Vitals)
-  // =========================
   async function savePatient() {
     setMessage("");
     if (!name.trim()) {
@@ -395,9 +393,6 @@ export default function Home() {
     }
   }
 
-  // =========================
-  // EDIT PATIENT
-  // =========================
   function startEditPatient() {
     if (!selectedPatient) return;
     setEditName(selectedPatient.name || "");
@@ -447,9 +442,6 @@ export default function Home() {
     }
   }
 
-  // =========================
-  // FETCH PATIENTS
-  // =========================
   async function fetchPatients() {
     try {
       setLoadingPatients(true);
@@ -475,9 +467,6 @@ export default function Home() {
     setAssessment((prev) => ({ ...prev, [field]: value }));
   }
 
-  // =========================
-  // SAVE ASSESSMENT
-  // =========================
   async function saveAssessment() {
     const pId = selectedPatient?.id;
     if (!pId) {
@@ -498,9 +487,6 @@ export default function Home() {
     }
   }
 
-  // =========================
-  // PRESCRIPTION HELPERS
-  // =========================
   const addMedicineFromCategory = (medName, catName) => {
     let defaultDose = "1-1 वटी";
     if (catName === "चूर्ण") defaultDose = "3 ग्राम";
@@ -543,9 +529,10 @@ export default function Home() {
 
     try {
       const nowIso = new Date().toISOString();
+      const cleanMedicines = medicines.filter(m => m.name && m.name.trim());
       const newRx = {
         patient_id: selectedPatient.id,
-        medicines: medicines,
+        medicines: cleanMedicines.length > 0 ? cleanMedicines : medicines,
         diet_instructions: diet,
         lifestyle_advice: attendingDoctor,
         follow_up_days: followUpDays ? Number(followUpDays) : 7,
@@ -558,8 +545,7 @@ export default function Home() {
       const { data, error } = await supabase.from("prescriptions").insert([newRx]).select().single();
       if (error) throw error;
 
-      // Deduct stock preview
-      for (const m of medicines) {
+      for (const m of (cleanMedicines.length > 0 ? cleanMedicines : medicines)) {
         if (m.name && m.name.trim()) {
           const { data: invMatches } = await supabase.from("inventory").select("*").ilike("medicine_name", `%${m.name.trim()}%`);
           if (invMatches && invMatches.length > 0) {
@@ -595,7 +581,7 @@ export default function Home() {
   }
 
   // =========================
-  // PHARMACY / MEDICAL STORE MODULE
+  // ITEMIZED PHARMACY MODULE
   // =========================
   async function fetchPharmacyQueue() {
     try {
@@ -615,8 +601,41 @@ export default function Home() {
   function openDispenseModal(rx) {
     setDispenseRx(rx);
     setDispensePatient(rx.patients);
-    setMedicineBillAmount(rx.medicine_bill_amount ? rx.medicine_bill_amount.toString() : "");
+    setDispensePhone(rx.patients?.phone || "");
+    
+    const items = (rx.medicines || []).filter(m => m.name && m.name.trim()).map((m) => {
+      let defaultUnit = "डब्बी (Jar/Box)";
+      if (m.category === "आसव / अरिष्ट" || m.category === "क्वाथ / तैल / अन्य") defaultUnit = "बोतल (Bottle)";
+      if (m.category === "चूर्ण") defaultUnit = "पैकेट (Pkt/Jar)";
+      if (m.category === "वटी / गुटिका") defaultUnit = "डब्बी (Jar)";
+
+      return {
+        name: m.name,
+        category: m.category || "औषधि",
+        dose: m.dose || "—",
+        qty: 1,
+        unit: defaultUnit,
+        pricePerUnit: 0,
+        total: 0
+      };
+    });
+
+    setDispenseItems(items);
+    setMedicineBillAmount(rx.medicine_bill_amount ? rx.medicine_bill_amount.toString() : "0");
     setScreen("dispenseScreen");
+  }
+
+  function updateDispenseItemRow(index, field, value) {
+    const updated = [...dispenseItems];
+    updated[index][field] = value;
+
+    const q = Number(updated[index].qty) || 0;
+    const p = Number(updated[index].pricePerUnit) || 0;
+    updated[index].total = q * p;
+
+    setDispenseItems(updated);
+    const grandTotal = updated.reduce((acc, curr) => acc + curr.total, 0);
+    setMedicineBillAmount(grandTotal.toString());
   }
 
   async function completeDispensing() {
@@ -630,7 +649,6 @@ export default function Home() {
         dispensed_at: new Date().toISOString()
       }).eq("id", dispenseRx.id);
 
-      // Create a billing record if amount > 0
       if (amount > 0 && dispensePatient?.id) {
         await supabase.from("billings").insert([{
           patient_id: dispensePatient.id,
@@ -658,19 +676,23 @@ export default function Home() {
   function shareMedicineBillWhatsApp() {
     if (!dispensePatient || !dispenseRx) return;
     const billAmt = medicineBillAmount || dispenseRx.medicine_bill_amount || 0;
-    let text = `🌿 *${hospitalInfo.hospital_name} - मेडिकल स्टोर रसीद*\n\n`;
+    const billTime = formatTime(dispenseRx.dispensed_at || new Date().toISOString());
+    const billDate = formatDate(dispenseRx.dispensed_at || new Date().toISOString());
+
+    let text = `🌿 *${hospitalInfo.hospital_name} - मेडिकल स्टोर बिल*\n\n`;
     text += `*रोगी:* ${dispensePatient.name} (TAT-${dispensePatient.id})\n`;
     text += `*Rx पर्चा सं.:* RX-${dispenseRx.id}\n`;
-    text += `*दिनांक:* ${formatDate(dispenseRx.created_at)}\n\n`;
-    text += `💊 *दवाइयां (Medicines Dispensed):*\n`;
-    dispenseRx.medicines?.forEach((m, idx) => {
-      text += `${idx + 1}. *${m.name}* (${m.dose || "—"})\n`;
+    text += `*दिनांक व समय:* ${billDate} (${billTime})\n\n`;
+    text += `💊 *दी गई दवाइयों का विवरण (Dispensed Items):*\n`;
+    dispenseItems.forEach((m, idx) => {
+      text += `${idx + 1}. *${m.name}* - ${m.qty} ${m.unit} @ ₹${m.pricePerUnit} = ₹${m.total}\n`;
     });
     text += `\n-------------------------\n`;
-    text += `*कुल औषधि मूल्य:* ₹${billAmt} (${dispensePayMode})\n\n`;
+    text += `*कुल औषधि देय राशि:* ₹${billAmt} (${dispensePayMode})\n\n`;
     text += `_स्वास्थ्य लाभ की शुभकामनाओं सहित!_`;
 
-    const rawPhone = (dispensePatient.phone || "").replace(/\D/g, "");
+    const phoneToSend = dispensePhone || dispensePatient.phone || "";
+    const rawPhone = phoneToSend.replace(/\D/g, "");
     const formattedPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
     const url = formattedPhone ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(text)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
     window.open(url, "_blank");
@@ -732,7 +754,7 @@ export default function Home() {
     let text = `🌿 *${hospitalInfo.hospital_name} - अनुवर्तन (Follow-up)*\n\n`;
     text += `*रोगी ID:* TAT-${selectedPatient.id}\n`;
     text += `*रोगी:* ${selectedPatient.name}\n`;
-    text += `*विज़िट दिनांक:* ${formatDate(fu.created_at)}\n`;
+    text += `*विज़िट दिनांक:* ${formatDate(fu.created_at)} (${formatTime(fu.created_at)})\n`;
     text += `*सुधार:* ${fu.symptom_relief || "प्रगति पर"}\n`;
     text += `*निर्देश:* ${fu.treatment_modification || "पूर्वतः जारी रखें"}\n\n`;
     text += `📅 *अगली विज़िट:* ${fu.next_visit_days || 7} दिन बाद।\n`;
@@ -800,7 +822,7 @@ export default function Home() {
     let text = `🌿 *${hospitalInfo.hospital_name} - OPD रसीद*\n\n`;
     text += `*रसीद सं.:* RCP-${currentBill.id || "01"}\n`;
     text += `*रोगी:* ${selectedPatient.name} (TAT-${selectedPatient.id})\n`;
-    text += `*दिनांक:* ${formatDate(currentBill.created_at)}\n\n`;
+    text += `*दिनांक व समय:* ${formatDate(currentBill.created_at)} (${formatTime(currentBill.created_at)})\n\n`;
     text += `*विवरण:*\n`;
     text += `• परामर्श शुल्क: ₹${currentBill.consultation_fee}\n`;
     if (currentBill.medicine_fee > 0) text += `• औषधि शुल्क: ₹${currentBill.medicine_fee}\n`;
@@ -947,7 +969,6 @@ export default function Home() {
     window.open(url, "_blank");
   }
 
-  // Filter
   const searchText = search.toLowerCase().trim();
   const filteredPatients = patients.filter((p) => {
     const pName = (p.name || "").toLowerCase();
@@ -961,7 +982,7 @@ export default function Home() {
   });
 
   // =========================
-  // 1. HOME SCREEN (With Pharmacy Widgets)
+  // 1. HOME SCREEN
   // =========================
   if (screen === "home") {
     return (
@@ -1001,7 +1022,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Pharmacy & Medicine Sales Widgets */}
+        {/* Pharmacy Widgets */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", maxWidth: "480px", marginBottom: "14px" }}>
           <div onClick={fetchPharmacyQueue} style={{ background: "#f3e5f5", border: "1.5px solid #ce93d8", padding: "10px 8px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
             <div style={{ fontSize: "12px", color: "#7b1fa2", fontWeight: "bold" }}>💊 फार्मेसी कतार (Pending)</div>
@@ -1023,7 +1044,7 @@ export default function Home() {
           />
         </div>
 
-        {/* Navigation Grid */}
+        {/* Action Grid */}
         <div style={{ display: "grid", gap: "10px", maxWidth: "480px" }}>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => setScreen("newPatient")}>
             ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry & Vitals)
@@ -1083,6 +1104,8 @@ export default function Home() {
           {filteredPharmacy.map((rx) => {
             const p = rx.patients || {};
             const isPending = (rx.pharmacy_status || "Pending") === "Pending";
+            const validMeds = (rx.medicines || []).filter(m => m.name && m.name.trim());
+
             return (
               <div
                 key={rx.id}
@@ -1105,9 +1128,9 @@ export default function Home() {
                 </div>
 
                 <div style={{ background: "#fafafa", padding: "8px", borderRadius: "6px", margin: "8px 0", fontSize: "13px" }}>
-                  <strong>दवाइयाँ ({rx.medicines?.length || 0}):</strong>
+                  <strong>दवाइयाँ ({validMeds.length}):</strong>
                   <div style={{ color: "#333", marginTop: "2px" }}>
-                    {rx.medicines?.map((m) => m.name).join(", ") || "कोई दवा नहीं"}
+                    {validMeds.map((m) => m.name).join(", ") || "कोई दवा नहीं"}
                   </div>
                 </div>
 
@@ -1138,7 +1161,7 @@ export default function Home() {
   }
 
   // =========================
-  // 3. PHARMACY DISPENSE & MEDICINE BILLING SCREEN
+  // 3. ITEMIZED PHARMACY DISPENSE & BILLING SCREEN
   // =========================
   if (screen === "dispenseScreen" && dispenseRx && dispensePatient) {
     return (
@@ -1147,9 +1170,9 @@ export default function Home() {
           ← फार्मेसी कतार
         </button>
 
-        <h2>💊 दवा वितरण व औषधि बिल (Rx #{dispenseRx.id})</h2>
+        <h2>💊 दवा वितरण व आइटम-वार औषधि बिल</h2>
 
-        <div style={{ background: "#fff", padding: "18px", borderRadius: "10px", border: "1.5px solid #7b1fa2", maxWidth: "540px", marginBottom: "16px" }}>
+        <div style={{ background: "#fff", padding: "18px", borderRadius: "10px", border: "1.5px solid #7b1fa2", maxWidth: "620px", marginBottom: "16px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
             <div>
               <strong style={{ fontSize: "16px" }}>👤 {dispensePatient.name}</strong> ({dispensePatient.age || "—"}y / {dispensePatient.gender || "—"})
@@ -1167,42 +1190,87 @@ export default function Home() {
             </button>
           </div>
 
-          <h4 style={{ color: "#4a148c", margin: "14px 0 8px 0" }}>📋 डॉक्टर द्वारा लिखी दवाइयाँ:</h4>
+          <h4 style={{ color: "#4a148c", margin: "14px 0 8px 0" }}>📦 दवाइयों का वितरण, मात्रा व मूल्य (Dispensing Table):</h4>
+          
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", marginBottom: "14px" }}>
             <thead>
               <tr style={{ background: "#f3e5f5", color: "#4a148c", textAlign: "left" }}>
-                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>#</th>
                 <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>औषधि नाम</th>
-                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>मात्रा</th>
-                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>सेवन काल</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "55px" }}>मात्रा</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "100px" }}>इकाई (Unit)</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "65px" }}>दर (₹)</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "70px", textAlign: "right" }}>कुल (₹)</th>
               </tr>
             </thead>
             <tbody>
-              {dispenseRx.medicines?.map((m, idx) => (
+              {dispenseItems.map((item, idx) => (
                 <tr key={idx}>
-                  <td style={{ padding: "6px", border: "1px solid #eee", textAlign: "center" }}>{idx + 1}</td>
-                  <td style={{ padding: "6px", border: "1px solid #eee" }}><strong>{m.name}</strong></td>
-                  <td style={{ padding: "6px", border: "1px solid #eee" }}>{m.dose || "—"}</td>
-                  <td style={{ padding: "6px", border: "1px solid #eee" }}>{m.timing || "—"}</td>
+                  <td style={{ padding: "6px", border: "1px solid #eee" }}>
+                    <strong>{item.name}</strong>
+                    <div style={{ fontSize: "10px", color: "#777" }}>{item.dose}</div>
+                  </td>
+                  <td style={{ padding: "4px", border: "1px solid #eee" }}>
+                    <input
+                      type="number"
+                      min="1"
+                      value={item.qty}
+                      onChange={(e) => updateDispenseItemRow(idx, "qty", e.target.value)}
+                      style={{ width: "100%", padding: "4px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box", textAlign: "center" }}
+                    />
+                  </td>
+                  <td style={{ padding: "4px", border: "1px solid #eee" }}>
+                    <select
+                      value={item.unit}
+                      onChange={(e) => updateDispenseItemRow(idx, "unit", e.target.value)}
+                      style={{ width: "100%", padding: "4px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "11px", background: "#fff" }}
+                    >
+                      <option value="डब्बी (Jar/Box)">डब्बी (Jar/Box)</option>
+                      <option value="स्ट्रिप (Strip)">स्ट्रिप (Strip)</option>
+                      <option value="बोतल (Bottle)">बोतल (Bottle)</option>
+                      <option value="पैकेट (Pkt)">पैकेट (Pkt)</option>
+                      <option value="पीस (Pcs)">पीस (Pcs)</option>
+                    </select>
+                  </td>
+                  <td style={{ padding: "4px", border: "1px solid #eee" }}>
+                    <input
+                      type="number"
+                      placeholder="₹"
+                      value={item.pricePerUnit || ""}
+                      onChange={(e) => updateDispenseItemRow(idx, "pricePerUnit", e.target.value)}
+                      style={{ width: "100%", padding: "4px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box" }}
+                    />
+                  </td>
+                  <td style={{ padding: "6px", border: "1px solid #eee", textAlign: "right", fontWeight: "bold", color: "#4a148c" }}>
+                    ₹{item.total}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
+          {/* Grand Total, Custom WhatsApp Phone & Payment Mode */}
           <div style={{ background: "#fdf7ff", padding: "12px", borderRadius: "8px", border: "1px solid #e1bee7", marginBottom: "14px" }}>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", color: "#4a148c", marginBottom: "4px" }}>
-              💰 कुल औषधि मूल्य (Total Medicine Charges ₹):
-            </label>
-            <input
-              type="number"
-              placeholder="राशि दर्ज करें (उदा. 450)..."
-              value={medicineBillAmount}
-              onChange={(e) => setMedicineBillAmount(e.target.value)}
-              style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1.5px solid #7b1fa2", boxSizing: "border-box", fontSize: "16px", fontWeight: "bold" }}
-            />
+            
+            <div style={{ marginBottom: "10px" }}>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", color: "#4a148c", marginBottom: "4px" }}>
+                📱 WhatsApp बिल भेजने हेतु मोबाइल नंबर (वैकल्पिक/अन्य):
+              </label>
+              <input
+                type="tel"
+                placeholder="10 अंकों का मोबाइल नंबर..."
+                value={dispensePhone}
+                onChange={(e) => setDispensePhone(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box", fontSize: "14px" }}
+              />
+            </div>
 
-            <div style={{ marginTop: "8px" }}>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>भुगतान माध्यम:</label>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <span style={{ fontSize: "15px", fontWeight: "bold", color: "#4a148c" }}>कुल औषधि मूल्य (Total Medicine Charges):</span>
+              <span style={{ fontSize: "22px", fontWeight: "bold", color: "#4a148c" }}>₹{medicineBillAmount}</span>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>भुगतान माध्यम (Payment Mode):</label>
               <select
                 value={dispensePayMode}
                 onChange={(e) => setDispensePayMode(e.target.value)}
@@ -1228,7 +1296,7 @@ export default function Home() {
               onClick={shareMedicineBillWhatsApp}
               style={{ padding: "10px", background: "#25D366", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", fontSize: "14px", cursor: "pointer" }}
             >
-              💬 WhatsApp पर दवा बिल भेजें
+              💬 WhatsApp पर विस्तृत दवा बिल भेजें
             </button>
           </div>
         </div>
@@ -1262,7 +1330,6 @@ export default function Home() {
         </button>
         <h2>⚙️ मास्टर सेटिंग्स व क्लिनिकल कंट्रोल</h2>
 
-        {/* Master Clinical Presets */}
         <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1.5px solid #81c784", maxWidth: "520px", marginBottom: "20px" }}>
           <h3 style={{ margin: "0 0 12px 0", color: "#2e7d32" }}>🌿 मास्टर डेटा एवं सूची प्रबंधन</h3>
 
@@ -1312,7 +1379,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Hospital Details & Letterhead */}
         <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "520px", marginBottom: "20px" }}>
           <h3 style={{ margin: "0 0 12px 0", color: "#333" }}>🏥 हॉस्पिटल व लेटरहेड विवरण</h3>
           <div style={{ marginBottom: "10px" }}>
@@ -1350,7 +1416,6 @@ export default function Home() {
           {settingsMsg && <div style={{ marginTop: "8px", fontWeight: "bold", color: "#2e7d32" }}>{settingsMsg}</div>}
         </div>
 
-        {/* Data Backup */}
         <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "520px" }}>
           <h3 style={{ margin: "0 0 6px 0", color: "#333" }}>📥 ऑफलाइन डेटा बैकअप (Excel / CSV)</h3>
           <p style={{ fontSize: "12px", color: "#666", margin: "0 0 10px 0" }}>अपने क्लिनिक के समस्त रोगियों का रिकॉर्ड एक क्लिक में सुरक्षित डाउनलोड करें:</p>
@@ -1387,7 +1452,6 @@ export default function Home() {
 
           <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="मोबाइल नंबर (WhatsApp)" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
           
-          {/* Vitals Section */}
           <div style={{ background: "#fff", padding: "12px", borderRadius: "8px", border: "1px solid #c8e6c9" }}>
             <div style={{ fontSize: "13px", fontWeight: "bold", color: "#2e7d32", marginBottom: "8px" }}>🩺 रोगी वाइटल्स (Vitals Record):</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
@@ -1596,7 +1660,6 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Vitals Summary */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", background: "#e8f5e9", padding: "8px", borderRadius: "6px", margin: "10px 0", textAlign: "center", fontSize: "12px" }}>
             <div><strong>BP:</strong> {p.bp || "—"}</div>
             <div><strong>Pulse:</strong> {p.pulse_rate || "—"}</div>
@@ -2441,6 +2504,7 @@ export default function Home() {
     const entryTimeStr = formatTime(selectedPatient.created_at);
     const exitTimeStr = formatTime(rx.created_at);
     const consultDateStr = formatDate(rx.created_at);
+    const validMeds = (rx.medicines || []).filter(m => m.name && m.name.trim());
 
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif", maxWidth: "720px", margin: "0 auto" }}>
@@ -2466,7 +2530,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Dynamic Letterhead */}
         <div id="printableArea" style={{ border: "2px solid #2e7d32", padding: "20px", borderRadius: "10px", background: "#fff" }}>
           
           <div style={{ textAlign: "center", borderBottom: "2px solid #2e7d32", paddingBottom: "10px", marginBottom: "14px" }}>
@@ -2494,7 +2557,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Vitals Bar in Printed Rx */}
           {(selectedPatient.bp || selectedPatient.pulse_rate || selectedPatient.weight || selectedPatient.temperature) && (
             <div style={{ display: "flex", gap: "14px", fontSize: "11px", background: "#fafafa", padding: "5px 10px", borderRadius: "4px", border: "1px solid #eee", marginBottom: "12px", color: "#333" }}>
               {selectedPatient.bp && <span><strong>BP:</strong> {selectedPatient.bp}</span>}
@@ -2518,7 +2580,7 @@ export default function Home() {
               </tr>
             </thead>
             <tbody>
-              {rx.medicines?.map((m, i) => (
+              {validMeds.map((m, i) => (
                 <tr key={i}>
                   <td style={{ padding: "6px", border: "1px solid #ddd", textAlign: "center" }}>{i + 1}</td>
                   <td style={{ padding: "6px", border: "1px solid #ddd" }}>
