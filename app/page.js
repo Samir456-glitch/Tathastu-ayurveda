@@ -685,9 +685,9 @@ export default function Home() {
         }]);
       }
 
-      alert("✅ दवा वितरण व बिलिंग पूर्ण!");
       fetchStats();
-      fetchPharmacyQueue();
+      // Directly open Printable Pharmacy Bill Slip Screen
+      setScreen("printMedicineBillPreview");
     } catch (err) {
       alert("वितरण पूरा करने में त्रुटि: " + err.message);
     } finally {
@@ -938,7 +938,7 @@ export default function Home() {
   // =========================
   // DIRECT PDF DOWNLOAD
   // =========================
-  async function downloadPdfDirect() {
+  async function downloadPdfDirect(areaId = "printableArea", docName = "Document") {
     setDownloadingPdf(true);
     try {
       if (!window.html2pdf) {
@@ -947,10 +947,10 @@ export default function Home() {
         document.body.appendChild(script);
         await new Promise((res) => (script.onload = res));
       }
-      const element = document.getElementById("printableArea");
+      const element = document.getElementById(areaId);
       const opt = {
         margin: [6, 6, 6, 6],
-        filename: `${selectedPatient?.name || "Patient"}_TAT-${selectedPatient?.id || "Doc"}.pdf`,
+        filename: `${docName}_${new Date().toISOString().slice(0, 10)}.pdf`,
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
@@ -1336,7 +1336,14 @@ export default function Home() {
               disabled={dispensing}
               style={{ padding: "12px", background: "#7b1fa2", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", fontSize: "15px", cursor: "pointer" }}
             >
-              {dispensing ? "⏳ प्रक्रियाधीन..." : "✅ दवा दी गई (Complete & Save Bill)"}
+              {dispensing ? "⏳ प्रक्रियाधीन..." : "✅ दवा दी गई व बिल प्रिंट करें (Complete & Print Bill)"}
+            </button>
+
+            <button
+              onClick={() => setScreen("printMedicineBillPreview")}
+              style={{ padding: "10px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", fontSize: "14px", cursor: "pointer" }}
+            >
+              🖨️ औषधि बिल Print / PDF Slip देखें
             </button>
 
             <button
@@ -1345,6 +1352,101 @@ export default function Home() {
             >
               💬 WhatsApp पर विस्तृत दवा बिल भेजें
             </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // =========================
+  // 3.1 DEDICATED PRINTABLE MEDICINE BILL SLIP SCREEN
+  // =========================
+  if (screen === "printMedicineBillPreview" && dispenseRx && dispensePatient) {
+    const validItems = dispenseItems.filter(m => m.name && m.name.trim());
+    const billTime = formatTime(dispenseRx.dispensed_at || new Date().toISOString());
+    const billDate = formatDate(dispenseRx.dispensed_at || new Date().toISOString());
+
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif", maxWidth: "620px", margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }}>
+          <button style={{ padding: "8px 14px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("dispenseScreen")}>
+            ← वापस बिलिंग
+          </button>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button onClick={shareMedicineBillWhatsApp} style={{ padding: "8px 14px", background: "#25D366", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>
+              💬 WhatsApp
+            </button>
+            <button
+              onClick={() => downloadPdfDirect("medicinePrintableArea", `${dispensePatient.name}_Medicine_Bill`)}
+              disabled={downloadingPdf}
+              style={{ padding: "8px 14px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+            >
+              {downloadingPdf ? "⏳ PDF बन रही है..." : "📥 PDF डाउनलोड"}
+            </button>
+          </div>
+        </div>
+
+        {/* Printable Medicine Bill Area */}
+        <div id="medicinePrintableArea" style={{ border: "2px solid #7b1fa2", padding: "20px", borderRadius: "10px", background: "#fff" }}>
+          <div style={{ textAlign: "center", borderBottom: "2px solid #7b1fa2", paddingBottom: "10px", marginBottom: "14px" }}>
+            <h2 style={{ margin: "0", color: "#7b1fa2", fontSize: "20px" }}>🌿 {hospitalInfo.hospital_name}</h2>
+            <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>{hospitalInfo.address} | 📱 {hospitalInfo.contact_phone}</p>
+            <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#4a148c", fontWeight: "bold" }}>औषधि बिक्री रसीद (Pharmacy Cash/Credit Memo)</p>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "14px", background: "#f3e5f5", padding: "8px", borderRadius: "6px" }}>
+            <div>
+              <strong>रोगी:</strong> {dispensePatient.name} ({dispensePatient.age || "—"}y / {dispensePatient.gender || "—"})<br />
+              <strong>UHID:</strong> TAT-{dispensePatient.id} | <strong>📱 Phone:</strong> {dispensePhone || dispensePatient.phone || "—"}
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <strong>Rx पर्चा सं.:</strong> RX-{dispenseRx.id}<br />
+              <strong>दिनांक:</strong> {billDate} ({billTime})
+            </div>
+          </div>
+
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", marginBottom: "14px" }}>
+            <thead>
+              <tr style={{ background: "#f3e5f5", color: "#4a148c", textAlign: "left" }}>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "24px", textAlign: "center" }}>#</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>औषधि विवरण (Item Name)</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "45px", textAlign: "center" }}>मात्रा</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "70px" }}>इकाई</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "60px", textAlign: "right" }}>दर (₹)</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "70px", textAlign: "right" }}>कुल (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {validItems.map((m, idx) => (
+                <tr key={idx}>
+                  <td style={{ padding: "6px", border: "1px solid #eee", textAlign: "center" }}>{idx + 1}</td>
+                  <td style={{ padding: "6px", border: "1px solid #eee" }}><strong>{m.name}</strong></td>
+                  <td style={{ padding: "6px", border: "1px solid #eee", textAlign: "center" }}>{m.qty}</td>
+                  <td style={{ padding: "6px", border: "1px solid #eee" }}>{m.unit}</td>
+                  <td style={{ padding: "6px", border: "1px solid #eee", textAlign: "right" }}>₹{m.pricePerUnit}</td>
+                  <td style={{ padding: "6px", border: "1px solid #eee", textAlign: "right", fontWeight: "bold" }}>₹{m.total}</td>
+                </tr>
+              ))}
+              <tr style={{ background: "#f3e5f5", fontWeight: "bold" }}>
+                <td colSpan="5" style={{ padding: "8px", border: "1px solid #e1bee7", textAlign: "right", fontSize: "13px", color: "#4a148c" }}>
+                  कुल प्राप्त औषधि राशि (Total Amount):
+                </td>
+                <td style={{ padding: "8px", border: "1px solid #e1bee7", textAlign: "right", color: "#4a148c", fontSize: "16px" }}>
+                  ₹{medicineBillAmount}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style={{ fontSize: "12px", color: "#555", marginBottom: "16px" }}>
+            <strong>भुगतान विधि:</strong> {dispensePayMode}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: "24px", fontSize: "12px" }}>
+            <div>_शीघ्र स्वास्थ्य लाभ की कामना सहित!_</div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ borderTop: "1px dashed #333", width: "120px", paddingTop: "4px", fontWeight: "bold" }}>फार्मासिस्ट हस्ताक्षर</div>
+            </div>
           </div>
         </div>
       </main>
@@ -2346,7 +2448,7 @@ export default function Home() {
   }
 
   // =========================
-  // 14. PRINT BILL PREVIEW SCREEN
+  // 14. PRINT OPD BILL PREVIEW SCREEN
   // =========================
   if (screen === "printBillPreview" && selectedPatient && currentBill) {
     const b = currentBill;
@@ -2360,7 +2462,7 @@ export default function Home() {
             <button onClick={shareBillWhatsApp} style={{ padding: "8px 14px", background: "#25D366", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>
               💬 WhatsApp
             </button>
-            <button onClick={downloadPdfDirect} style={{ padding: "8px 14px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>
+            <button onClick={() => downloadPdfDirect("printableArea", `${selectedPatient.name}_OPD_Receipt`)} style={{ padding: "8px 14px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>
               📥 PDF डाउनलोड
             </button>
           </div>
@@ -2544,7 +2646,7 @@ export default function Home() {
   }
 
   // =========================
-  // 17. PRINT / PDF PREVIEW SCREEN
+  // 17. PRINT / PDF PREVIEW SCREEN (DOCTOR RX)
   // =========================
   if (screen === "printPreview" && selectedPatient && currentPrescription) {
     const rx = currentPrescription;
@@ -2568,7 +2670,7 @@ export default function Home() {
               💬 WhatsApp ({selectedPatient.phone || "Share"})
             </button>
             <button
-              onClick={downloadPdfDirect}
+              onClick={() => downloadPdfDirect("printableArea", `${selectedPatient.name}_TAT-${selectedPatient.id}`)}
               disabled={downloadingPdf}
               style={{ padding: "10px 16px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
             >
