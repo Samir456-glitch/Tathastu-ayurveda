@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 
-// Default Master Presets (Fallbacks)
+// Master Presets
 const DEFAULT_CATEGORIES = {
   "वटी / गुटिका": ["Chandraprabha Vati", "Arogyavardhini Vati", "Mahasudarshan Vati", "Sanjivani Vati", "Khadiradi Vati", "Chitrakadi Vati", "Lashunadi Vati", "Brahmi Vati", "Shankh Vati", "Giloy Ghanvati", "Pramehin"],
   "आसव / अरिष्ट": ["Amritarishta", "Ashokarishta", "Ashwagandharishta", "Arvindasava", "Balarishta", "Dashmularishta", "Draksharishta", "Kumaryasava", "Lohasava", "Punarnavarishta"],
@@ -41,6 +41,7 @@ const COMMON_DIAGNOSIS_SUGGESTIONS = [
   "Shirashoola / शिरःशूल (Headache / Migraine)",
   "Anidra / अनिद्रा (Insomnia / Stress)"
 ];
+
 function formatTime(isoStr) {
   if (!isoStr) return "—";
   return new Date(isoStr).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
@@ -143,13 +144,21 @@ export default function Home() {
   ]);
   const [investigations, setInvestigations] = useState("");
   const [diet, setDiet] = useState("");
-  const [lifestyle, setLifestyle] = useState("");
   const [followUpDays, setFollowUpDays] = useState("7");
   const [savingPrescription, setSavingPrescription] = useState(false);
   const [prescriptionMsg, setPrescriptionMsg] = useState("");
   const [savedPrescriptions, setSavedPrescriptions] = useState([]);
   const [currentPrescription, setCurrentPrescription] = useState(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  // Pharmacy Queue & Dispensing States
+  const [pharmacyQueue, setPharmacyQueue] = useState([]);
+  const [pharmacySearch, setPharmacySearch] = useState("");
+  const [dispenseRx, setDispenseRx] = useState(null);
+  const [dispensePatient, setDispensePatient] = useState(null);
+  const [medicineBillAmount, setMedicineBillAmount] = useState("");
+  const [dispensePayMode, setDispensePayMode] = useState("Cash (नकद)");
+  const [dispensing, setDispensing] = useState(false);
 
   // Follow-up States
   const [followUps, setFollowUps] = useState([]);
@@ -192,7 +201,13 @@ export default function Home() {
   const [savingDoc, setSavingDoc] = useState(false);
 
   // Dashboard Stats
-  const [stats, setStats] = useState({ todayCount: 0, waitingCount: 0, completedCount: 0, todayRevenue: 0 });
+  const [stats, setStats] = useState({ 
+    todayCount: 0, 
+    waitingCount: 0, 
+    completedCount: 0, 
+    pharmacyPending: 0,
+    todayMedicineSales: 0 
+  });
 
   useEffect(() => {
     loadHospitalSettings();
@@ -283,14 +298,23 @@ export default function Home() {
       todayStart.setHours(0, 0, 0, 0);
 
       const { data: todPatients } = await supabase.from("patients").select("opd_status").gte("created_at", todayStart.toISOString());
-      const { data: billData } = await supabase.from("billings").select("total_amount").gte("created_at", todayStart.toISOString());
+      const { data: pharmacyData } = await supabase.from("prescriptions").select("pharmacy_status, medicine_bill_amount").gte("created_at", todayStart.toISOString());
 
       const todList = todPatients || [];
       const waiting = todList.filter((p) => (p.opd_status || "Waiting") === "Waiting").length;
       const completed = todList.filter((p) => p.opd_status === "Completed").length;
-      const todRev = (billData || []).reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0);
+      
+      const rxList = pharmacyData || [];
+      const pharmPending = rxList.filter((r) => (r.pharmacy_status || "Pending") === "Pending").length;
+      const medSales = rxList.reduce((acc, curr) => acc + (Number(curr.medicine_bill_amount) || 0), 0);
 
-      setStats({ todayCount: todList.length, waitingCount: waiting, completedCount: completed, todayRevenue: todRev });
+      setStats({ 
+        todayCount: todList.length, 
+        waitingCount: waiting, 
+        completedCount: completed,
+        pharmacyPending: pharmPending,
+        todayMedicineSales: medSales
+      });
     } catch (e) {
       console.log(e);
     }
@@ -347,7 +371,7 @@ export default function Home() {
       if (error) throw error;
       const generatedId = data?.id ? `TAT-${data.id}` : "";
       const regTime = formatTime(data?.created_at || patient.created_at);
-      setMessage(`✅ रोगी टोकन जारी! (UHID: ${generatedId} | समय: ${regTime})`);
+      setMessage(`✅ टोकन जारी! (UHID: ${generatedId} | समय: ${regTime})`);
       setName(""); setAge(""); setGender(""); setPhone(""); setComplaint("");
       setBp(""); setPulseRate(""); setWeight(""); setTemperature(""); setSpo2("");
       fetchStats();
@@ -515,7 +539,7 @@ export default function Home() {
   async function savePrescription() {
     if (!selectedPatient?.id) return;
     setSavingPrescription(true);
-    setPrescriptionMsg("⏳ पर्चा सहेजा जा रहा है व स्टॉक अपडेट हो रहा है...");
+    setPrescriptionMsg("⏳ पर्चा सहेजा जा रहा है व फार्मेसी काउंटर को भेजा जा रहा है...");
 
     try {
       const nowIso = new Date().toISOString();
@@ -526,12 +550,15 @@ export default function Home() {
         lifestyle_advice: attendingDoctor,
         follow_up_days: followUpDays ? Number(followUpDays) : 7,
         investigations: investigations,
+        pharmacy_status: "Pending",
+        medicine_bill_amount: 0,
         created_at: nowIso
       };
 
       const { data, error } = await supabase.from("prescriptions").insert([newRx]).select().single();
       if (error) throw error;
 
+      // Deduct stock preview
       for (const m of medicines) {
         if (m.name && m.name.trim()) {
           const { data: invMatches } = await supabase.from("inventory").select("*").ilike("medicine_name", `%${m.name.trim()}%`);
@@ -545,7 +572,8 @@ export default function Home() {
 
       await updatePatientOpdStatus(selectedPatient.id, "Completed");
       setCurrentPrescription(data || newRx);
-      setPrescriptionMsg("✅ पर्चा सहेजा गया व OPD परामर्श पूर्ण!");
+      setPrescriptionMsg("✅ पर्चा सहेजा गया! फार्मेसी काउंटर पर उपलब्ध।");
+      fetchStats();
       setTimeout(() => setScreen("printPreview"), 600);
     } catch (err) {
       setPrescriptionMsg("❌ एरर: " + err.message);
@@ -564,6 +592,88 @@ export default function Home() {
     } catch (err) {
       alert("पर्चा लोड करने में समस्या: " + err.message);
     }
+  }
+
+  // =========================
+  // PHARMACY / MEDICAL STORE MODULE
+  // =========================
+  async function fetchPharmacyQueue() {
+    try {
+      const { data, error } = await supabase
+        .from("prescriptions")
+        .select("*, patients(*)")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      setPharmacyQueue(data || []);
+      setScreen("pharmacyQueueScreen");
+    } catch (err) {
+      alert("फार्मेसी कतार लोड नहीं हुई: " + err.message);
+    }
+  }
+
+  function openDispenseModal(rx) {
+    setDispenseRx(rx);
+    setDispensePatient(rx.patients);
+    setMedicineBillAmount(rx.medicine_bill_amount ? rx.medicine_bill_amount.toString() : "");
+    setScreen("dispenseScreen");
+  }
+
+  async function completeDispensing() {
+    if (!dispenseRx?.id) return;
+    setDispensing(true);
+    try {
+      const amount = Number(medicineBillAmount) || 0;
+      await supabase.from("prescriptions").update({
+        pharmacy_status: "Dispensed",
+        medicine_bill_amount: amount,
+        dispensed_at: new Date().toISOString()
+      }).eq("id", dispenseRx.id);
+
+      // Create a billing record if amount > 0
+      if (amount > 0 && dispensePatient?.id) {
+        await supabase.from("billings").insert([{
+          patient_id: dispensePatient.id,
+          consultation_fee: 0,
+          medicine_fee: amount,
+          procedure_fee: 0,
+          discount: 0,
+          total_amount: amount,
+          payment_mode: dispensePayMode,
+          notes: `Pharmacy Rx Dispensed #${dispenseRx.id}`,
+          created_at: new Date().toISOString()
+        }]);
+      }
+
+      alert("✅ दवा वितरण व बिलिंग पूर्ण!");
+      fetchStats();
+      fetchPharmacyQueue();
+    } catch (err) {
+      alert("वितरण पूरा करने में त्रुटि: " + err.message);
+    } finally {
+      setDispensing(false);
+    }
+  }
+
+  function shareMedicineBillWhatsApp() {
+    if (!dispensePatient || !dispenseRx) return;
+    const billAmt = medicineBillAmount || dispenseRx.medicine_bill_amount || 0;
+    let text = `🌿 *${hospitalInfo.hospital_name} - मेडिकल स्टोर रसीद*\n\n`;
+    text += `*रोगी:* ${dispensePatient.name} (TAT-${dispensePatient.id})\n`;
+    text += `*Rx पर्चा सं.:* RX-${dispenseRx.id}\n`;
+    text += `*दिनांक:* ${formatDate(dispenseRx.created_at)}\n\n`;
+    text += `💊 *दवाइयां (Medicines Dispensed):*\n`;
+    dispenseRx.medicines?.forEach((m, idx) => {
+      text += `${idx + 1}. *${m.name}* (${m.dose || "—"})\n`;
+    });
+    text += `\n-------------------------\n`;
+    text += `*कुल औषधि मूल्य:* ₹${billAmt} (${dispensePayMode})\n\n`;
+    text += `_स्वास्थ्य लाभ की शुभकामनाओं सहित!_`;
+
+    const rawPhone = (dispensePatient.phone || "").replace(/\D/g, "");
+    const formattedPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+    const url = formattedPhone ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(text)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
   }
 
   // =========================
@@ -851,13 +961,12 @@ export default function Home() {
   });
 
   // =========================
-  // 1. HOME SCREEN (Clean Front Page)
+  // 1. HOME SCREEN (With Pharmacy Widgets)
   // =========================
   if (screen === "home") {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
         
-        {/* Global Auto-Suggestions Datalist */}
         <datalist id="diagnosisSuggestions">
           {COMMON_DIAGNOSIS_SUGGESTIONS.map((d, i) => <option key={i} value={d} />)}
         </datalist>
@@ -866,7 +975,7 @@ export default function Home() {
           <div>
             <h1 style={{ color: "#2e7d32", margin: "0 0 4px 0" }}>🌿 Tathastu</h1>
             <h2 style={{ fontSize: "16px", color: "#333", margin: "0 0 2px 0" }}>{hospitalInfo.hospital_name}</h2>
-            <h3 style={{ fontSize: "13px", color: "#666", marginTop: 0 }}>वैद्य डेस्क व लाइव OPD कतार</h3>
+            <h3 style={{ fontSize: "13px", color: "#666", marginTop: 0 }}>वैद्य डेस्क, लाइव OPD व फार्मेसी</h3>
           </div>
           <button
             onClick={() => setScreen("settingsScreen")}
@@ -876,14 +985,14 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Clean 3-Column Clinical Counters (No Fee Shown) */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", maxWidth: "460px", margin: "14px 0" }}>
+        {/* Clinical OPD Counters */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", maxWidth: "480px", margin: "14px 0 8px 0" }}>
           <div onClick={() => openPatientList("All")} style={{ background: "#e8f5e9", border: "1px solid #c8e6c9", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
             <div style={{ fontSize: "12px", color: "#2e7d32", fontWeight: "bold" }}>👥 कुल OPD</div>
             <div style={{ fontSize: "20px", fontWeight: "bold", color: "#1b5e20", marginTop: "2px" }}>{stats.todayCount}</div>
           </div>
           <div onClick={() => openPatientList("Waiting")} style={{ background: "#fff8e1", border: "1.5px solid #ffe082", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "12px", color: "#f57f17", fontWeight: "bold" }}>⏳ प्रतीक्षारत (Waiting)</div>
+            <div style={{ fontSize: "12px", color: "#f57f17", fontWeight: "bold" }}>⏳ OPD Waiting</div>
             <div style={{ fontSize: "20px", fontWeight: "bold", color: "#e65100", marginTop: "2px" }}>{stats.waitingCount}</div>
           </div>
           <div onClick={() => openPatientList("Completed")} style={{ background: "#e0f2f1", border: "1px solid #80cbc4", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
@@ -892,8 +1001,20 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Pharmacy & Medicine Sales Widgets */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", maxWidth: "480px", marginBottom: "14px" }}>
+          <div onClick={fetchPharmacyQueue} style={{ background: "#f3e5f5", border: "1.5px solid #ce93d8", padding: "10px 8px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
+            <div style={{ fontSize: "12px", color: "#7b1fa2", fontWeight: "bold" }}>💊 फार्मेसी कतार (Pending)</div>
+            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#4a148c", marginTop: "2px" }}>{stats.pharmacyPending}</div>
+          </div>
+          <div style={{ background: "#e8eaf6", border: "1px solid #c5cae9", padding: "10px 8px", borderRadius: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "12px", color: "#283593", fontWeight: "bold" }}>💰 आज की औषधि बिक्री</div>
+            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#1a237e", marginTop: "2px" }}>₹{stats.todayMedicineSales}</div>
+          </div>
+        </div>
+
         {/* Quick Search */}
-        <div style={{ maxWidth: "460px", marginBottom: "12px" }}>
+        <div style={{ maxWidth: "480px", marginBottom: "12px" }}>
           <input
             type="text"
             placeholder="🔍 रोगी ID (उदा. TAT-1), नाम या मोबाइल खोजें..."
@@ -903,9 +1024,12 @@ export default function Home() {
         </div>
 
         {/* Navigation Grid */}
-        <div style={{ display: "grid", gap: "10px", maxWidth: "460px" }}>
+        <div style={{ display: "grid", gap: "10px", maxWidth: "480px" }}>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => setScreen("newPatient")}>
             ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry & Vitals)
+          </button>
+          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ba68c8", background: "#f3e5f5", fontWeight: "bold", textAlign: "left", color: "#4a148c" }} onClick={fetchPharmacyQueue}>
+            💊 <strong>मेडिकल स्टोर काउंटर (Pharmacy Rx Dispense & Bill)</strong>
           </button>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ffb74d", background: "#fff8e1", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("Waiting")}>
             ⏳ <strong>लाइव OPD कतार (Waiting Room - {stats.waitingCount})</strong>
@@ -922,7 +1046,198 @@ export default function Home() {
   }
 
   // =========================
-  // 2. MASTER SETTINGS SCREEN
+  // 2. PHARMACY QUEUE & SEARCH SCREEN
+  // =========================
+  if (screen === "pharmacyQueueScreen") {
+    const pSearch = pharmacySearch.toLowerCase().trim();
+    const filteredPharmacy = pharmacyQueue.filter((rx) => {
+      const p = rx.patients || {};
+      const pName = (p.name || "").toLowerCase();
+      const pPhone = (p.phone || "").toString();
+      const pId = (p.id || "").toString();
+      const rxId = (rx.id || "").toString();
+      return pName.includes(pSearch) || pPhone.includes(pSearch) || pId.includes(pSearch) || rxId.includes(pSearch) || `tat-${pId}`.includes(pSearch);
+    });
+
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif" }}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("home")}>
+          ← वापस होम
+        </button>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+          <h2 style={{ margin: 0, color: "#4a148c" }}>💊 मेडिकल स्टोर / फार्मेसी काउंटर</h2>
+          <span style={{ fontSize: "13px", fontWeight: "bold", color: "#6a1b9a" }}>पर्चे: {filteredPharmacy.length}</span>
+        </div>
+
+        <input
+          type="text"
+          placeholder="🔎 पर्चा सं. (RX-ID), रोगी ID (TAT-1), नाम या मोबाइल से खोजें..."
+          value={pharmacySearch}
+          autoFocus
+          onChange={(e) => setPharmacySearch(e.target.value)}
+          style={{ width: "100%", maxWidth: "520px", padding: "12px", marginBottom: "16px", boxSizing: "border-box", borderRadius: "8px", border: "2px solid #7b1fa2", fontSize: "14px" }}
+        />
+
+        <div style={{ display: "grid", gap: "10px", maxWidth: "520px" }}>
+          {filteredPharmacy.map((rx) => {
+            const p = rx.patients || {};
+            const isPending = (rx.pharmacy_status || "Pending") === "Pending";
+            return (
+              <div
+                key={rx.id}
+                style={{ padding: "14px", background: "#fff", border: isPending ? "1.5px solid #ba68c8" : "1px solid #ddd", borderRadius: "10px" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontWeight: "bold", fontSize: "16px", color: "#222" }}>👤 {p.name || "अज्ञात रोगी"}</div>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <span style={{ background: isPending ? "#f3e5f5" : "#e8f5e9", color: isPending ? "#7b1fa2" : "#2e7d32", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
+                      {isPending ? "⏳ दवा निकालना शेष" : "✅ Dispensed"}
+                    </span>
+                    <span style={{ background: "#4a148c", color: "#fff", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
+                      TAT-{p.id}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
+                  🕒 पर्चा समय: {formatDate(rx.created_at)} ({formatTime(rx.created_at)}) | वैद्य: {rx.lifestyle_advice || "Doctor"}
+                </div>
+
+                <div style={{ background: "#fafafa", padding: "8px", borderRadius: "6px", margin: "8px 0", fontSize: "13px" }}>
+                  <strong>दवाइयाँ ({rx.medicines?.length || 0}):</strong>
+                  <div style={{ color: "#333", marginTop: "2px" }}>
+                    {rx.medicines?.map((m) => m.name).join(", ") || "कोई दवा नहीं"}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                  <button
+                    onClick={() => {
+                      setSelectedPatient(p);
+                      setCurrentPrescription(rx);
+                      setScreen("printPreview");
+                    }}
+                    style={{ flex: 1, padding: "8px", background: "#fff", border: "1px solid #2e7d32", color: "#2e7d32", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "12px" }}
+                  >
+                    🖨️ डॉक्टर पर्चा प्रिंट
+                  </button>
+                  <button
+                    onClick={() => openDispenseModal(rx)}
+                    style={{ flex: 1.2, padding: "8px", background: isPending ? "#7b1fa2" : "#00796b", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "12px" }}
+                  >
+                    {isPending ? "💊 दवा दें व बिल बनाएं" : `💰 बिल देखें (₹${rx.medicine_bill_amount || 0})`}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </main>
+    );
+  }
+
+  // =========================
+  // 3. PHARMACY DISPENSE & MEDICINE BILLING SCREEN
+  // =========================
+  if (screen === "dispenseScreen" && dispenseRx && dispensePatient) {
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif" }}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("pharmacyQueueScreen")}>
+          ← फार्मेसी कतार
+        </button>
+
+        <h2>💊 दवा वितरण व औषधि बिल (Rx #{dispenseRx.id})</h2>
+
+        <div style={{ background: "#fff", padding: "18px", borderRadius: "10px", border: "1.5px solid #7b1fa2", maxWidth: "540px", marginBottom: "16px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
+            <div>
+              <strong style={{ fontSize: "16px" }}>👤 {dispensePatient.name}</strong> ({dispensePatient.age || "—"}y / {dispensePatient.gender || "—"})
+              <div style={{ fontSize: "12px", color: "#666" }}>📱 {dispensePatient.phone || "—"} | UHID: TAT-{dispensePatient.id}</div>
+            </div>
+            <button
+              onClick={() => {
+                setSelectedPatient(dispensePatient);
+                setCurrentPrescription(dispenseRx);
+                setScreen("printPreview");
+              }}
+              style={{ padding: "6px 10px", background: "#e8f5e9", border: "1px solid #81c784", color: "#2e7d32", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "11px", height: "fit-content" }}
+            >
+              🖨️ पर्चा Print
+            </button>
+          </div>
+
+          <h4 style={{ color: "#4a148c", margin: "14px 0 8px 0" }}>📋 डॉक्टर द्वारा लिखी दवाइयाँ:</h4>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", marginBottom: "14px" }}>
+            <thead>
+              <tr style={{ background: "#f3e5f5", color: "#4a148c", textAlign: "left" }}>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>#</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>औषधि नाम</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>मात्रा</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>सेवन काल</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dispenseRx.medicines?.map((m, idx) => (
+                <tr key={idx}>
+                  <td style={{ padding: "6px", border: "1px solid #eee", textAlign: "center" }}>{idx + 1}</td>
+                  <td style={{ padding: "6px", border: "1px solid #eee" }}><strong>{m.name}</strong></td>
+                  <td style={{ padding: "6px", border: "1px solid #eee" }}>{m.dose || "—"}</td>
+                  <td style={{ padding: "6px", border: "1px solid #eee" }}>{m.timing || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div style={{ background: "#fdf7ff", padding: "12px", borderRadius: "8px", border: "1px solid #e1bee7", marginBottom: "14px" }}>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", color: "#4a148c", marginBottom: "4px" }}>
+              💰 कुल औषधि मूल्य (Total Medicine Charges ₹):
+            </label>
+            <input
+              type="number"
+              placeholder="राशि दर्ज करें (उदा. 450)..."
+              value={medicineBillAmount}
+              onChange={(e) => setMedicineBillAmount(e.target.value)}
+              style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1.5px solid #7b1fa2", boxSizing: "border-box", fontSize: "16px", fontWeight: "bold" }}
+            />
+
+            <div style={{ marginTop: "8px" }}>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>भुगतान माध्यम:</label>
+              <select
+                value={dispensePayMode}
+                onChange={(e) => setDispensePayMode(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc", background: "#fff" }}
+              >
+                <option value="Cash (नकद)">Cash (नकद)</option>
+                <option value="UPI / QR Code">UPI / QR Code</option>
+                <option value="Card (कार्ड)">Card (कार्ड)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: "8px" }}>
+            <button
+              onClick={completeDispensing}
+              disabled={dispensing}
+              style={{ padding: "12px", background: "#7b1fa2", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", fontSize: "15px", cursor: "pointer" }}
+            >
+              {dispensing ? "⏳ प्रक्रियाधीन..." : "✅ दवा दी गई (Complete & Save Bill)"}
+            </button>
+
+            <button
+              onClick={shareMedicineBillWhatsApp}
+              style={{ padding: "10px", background: "#25D366", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", fontSize: "14px", cursor: "pointer" }}
+            >
+              💬 WhatsApp पर दवा बिल भेजें
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // =========================
+  // 4. MASTER SETTINGS SCREEN
   // =========================
   if (screen === "settingsScreen") {
     const getPlaceholderText = () => {
@@ -947,7 +1262,7 @@ export default function Home() {
         </button>
         <h2>⚙️ मास्टर सेटिंग्स व क्लिनिकल कंट्रोल</h2>
 
-        {/* 1. Master Clinical Presets */}
+        {/* Master Clinical Presets */}
         <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1.5px solid #81c784", maxWidth: "520px", marginBottom: "20px" }}>
           <h3 style={{ margin: "0 0 12px 0", color: "#2e7d32" }}>🌿 मास्टर डेटा एवं सूची प्रबंधन</h3>
 
@@ -997,7 +1312,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 2. Hospital Details & Letterhead */}
+        {/* Hospital Details & Letterhead */}
         <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "520px", marginBottom: "20px" }}>
           <h3 style={{ margin: "0 0 12px 0", color: "#333" }}>🏥 हॉस्पिटल व लेटरहेड विवरण</h3>
           <div style={{ marginBottom: "10px" }}>
@@ -1035,7 +1350,7 @@ export default function Home() {
           {settingsMsg && <div style={{ marginTop: "8px", fontWeight: "bold", color: "#2e7d32" }}>{settingsMsg}</div>}
         </div>
 
-        {/* 3. Offline Data Backup Button */}
+        {/* Data Backup */}
         <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "520px" }}>
           <h3 style={{ margin: "0 0 6px 0", color: "#333" }}>📥 ऑफलाइन डेटा बैकअप (Excel / CSV)</h3>
           <p style={{ fontSize: "12px", color: "#666", margin: "0 0 10px 0" }}>अपने क्लिनिक के समस्त रोगियों का रिकॉर्ड एक क्लिक में सुरक्षित डाउनलोड करें:</p>
@@ -1048,7 +1363,7 @@ export default function Home() {
   }
 
   // =========================
-  // 3. NEW PATIENT SCREEN (With Vitals & Symptom Auto-Suggest)
+  // 5. NEW PATIENT SCREEN
   // =========================
   if (screen === "newPatient") {
     return (
@@ -1089,7 +1404,7 @@ export default function Home() {
           <input
             list="diagnosisSuggestions"
             style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}
-            placeholder="मुख्य शिकायत / लक्षण (उदा. अम्लपित्त, संधिवात)..."
+            placeholder="मुख्य शिकायत / लक्षण (उदा. Amalpitta, Sandhivata)..."
             value={complaint}
             onChange={(e) => setComplaint(e.target.value)}
           />
@@ -1104,7 +1419,7 @@ export default function Home() {
   }
 
   // =========================
-  // 4. EDIT PATIENT SCREEN (With Vitals Edit)
+  // 6. EDIT PATIENT SCREEN
   // =========================
   if (screen === "editPatient" && selectedPatient) {
     return (
@@ -1138,7 +1453,6 @@ export default function Home() {
             <input style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
           </div>
 
-          {/* Vitals Edit */}
           <div style={{ background: "#fff", padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", color: "#2e7d32", marginBottom: "6px" }}>वाइटल्स (Vitals):</label>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "6px" }}>
@@ -1166,7 +1480,7 @@ export default function Home() {
   }
 
   // =========================
-  // 5. PATIENT LIST & QUEUE SCREEN
+  // 7. PATIENT LIST SCREEN
   // =========================
   if (screen === "patients") {
     return (
@@ -1180,7 +1494,6 @@ export default function Home() {
           <span style={{ fontSize: "13px", fontWeight: "bold", color: "#2e7d32" }}>फ़िल्टर: {opdFilter}</span>
         </div>
 
-        {/* Tab Filters */}
         <div style={{ display: "flex", gap: "6px", marginBottom: "14px", maxWidth: "500px" }}>
           <button
             onClick={() => setOpdFilter("All")}
@@ -1223,7 +1536,7 @@ export default function Home() {
                 <div
                   key={p.id}
                   onClick={() => { setSelectedPatient(p); setScreen("profile"); }}
-                  style={{ padding: "14px", background: "#fff", border: isWaiting ? "1.5px solid #ffe082" : "1px solid #ddd", borderRadius: "10px", cursor: "pointer", position: "relative" }}
+                  style={{ padding: "14px", background: "#fff", border: isWaiting ? "1.5px solid #ffe082" : "1px solid #ddd", borderRadius: "10px", cursor: "pointer" }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ fontWeight: "bold", fontSize: "16px", color: "#222" }}>👤 {p.name}</div>
@@ -1252,7 +1565,7 @@ export default function Home() {
   }
 
   // =========================
-  // 6. PATIENT PROFILE SCREEN (Vitals Displayed)
+  // 8. PATIENT PROFILE SCREEN
   // =========================
   if (screen === "profile" && selectedPatient) {
     const p = selectedPatient;
@@ -1283,7 +1596,7 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Vitals Summary Strip */}
+          {/* Vitals Summary */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", background: "#e8f5e9", padding: "8px", borderRadius: "6px", margin: "10px 0", textAlign: "center", fontSize: "12px" }}>
             <div><strong>BP:</strong> {p.bp || "—"}</div>
             <div><strong>Pulse:</strong> {p.pulse_rate || "—"}</div>
@@ -1317,7 +1630,7 @@ export default function Home() {
             onClick={() => { setPrescriptionMsg(""); setScreen("prescription"); }}
             style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e8f5e9", border: "1px solid #81c784", borderRadius: "6px", textAlign: "left" }}
           >
-            💊 <strong>नया Prescription</strong> (पर्चा बनाएँ)
+            💊 <strong>नया Prescription</strong> (पर्चा बनाएं व फार्मेसी भेजें)
           </button>
 
           <button
@@ -1342,13 +1655,6 @@ export default function Home() {
           </button>
 
           <button
-            onClick={() => setScreen("panchakarmaPlaceholder")}
-            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#f3e5f5", border: "1px solid #ce93d8", borderRadius: "6px", textAlign: "left" }}
-          >
-            🧘 <strong>पंचकर्म व उपक्रम (Panchakarma Protocol)</strong>
-          </button>
-
-          <button
             onClick={fetchPatientPrescriptions}
             style={{ width: "100%", padding: "12px", cursor: "pointer", fontWeight: "bold", background: "#fff", border: "1px solid #90caf9", borderRadius: "6px", textAlign: "left" }}
           >
@@ -1360,7 +1666,7 @@ export default function Home() {
   }
 
   // =========================
-  // 7. PATIENT DOCUMENTS MODULE
+  // 9. PATIENT DOCUMENTS SCREEN
   // =========================
   if (screen === "patientDocsScreen" && selectedPatient) {
     return (
@@ -1408,7 +1714,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Existing Docs */}
         <h3 style={{ color: "#333" }}>📋 संलग्न रिपोर्टें ({patientDocs.length})</h3>
         {patientDocs.length === 0 ? (
           <p>कोई पूर्व रिपोर्ट दर्ज नहीं है।</p>
@@ -1433,7 +1738,7 @@ export default function Home() {
   }
 
   // =========================
-  // 8. CLINICAL ASSESSMENT SCREEN (With Smart Diagnosis Auto-Suggest)
+  // 10. CLINICAL ASSESSMENT SCREEN
   // =========================
   if (screen === "assessment" && selectedPatient) {
     return (
@@ -1491,7 +1796,7 @@ export default function Home() {
   }
 
   // =========================
-  // 9. PRESCRIPTION CREATE SCREEN
+  // 11. PRESCRIPTION CREATE SCREEN
   // =========================
   if (screen === "prescription" && selectedPatient) {
     return (
@@ -1534,7 +1839,7 @@ export default function Home() {
 
           <hr style={{ margin: "12px 0" }} />
 
-          {/* Categorized Tabs */}
+          {/* Quick Medicine Picker */}
           <div style={{ marginBottom: "12px" }}>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", color: "#2e7d32", marginBottom: "6px" }}>
               📂 कल्प वर्ग चुनें (Quick Medicine Picker):
@@ -1582,7 +1887,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Active Medicines List */}
+          {/* Medicines List */}
           <h4 style={{ color: "#2e7d32", margin: "16px 0 8px 0" }}>🌿 निर्धारित औषधियाँ ({medicines.length})</h4>
           {medicines.map((m, idx) => (
             <div key={idx} style={{ background: "#f9f9f9", padding: "12px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #e0e0e0" }}>
@@ -1596,7 +1901,7 @@ export default function Home() {
               </div>
               
               <input
-                placeholder="औषधि नाम (उदा. महासुदर्शन वटी)"
+                placeholder="औषधि नाम (उदा. Chandraprabha Vati)"
                 value={m.name}
                 onChange={(e) => updateMedicineRow(idx, "name", e.target.value)}
                 style={{ width: "100%", padding: "8px", marginBottom: "6px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
@@ -1683,7 +1988,7 @@ export default function Home() {
             disabled={savingPrescription}
             style={{ width: "100%", padding: "14px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "bold", fontSize: "16px", cursor: "pointer" }}
           >
-            {savingPrescription ? "⏳ सहेजा जा रहा है..." : "💾 प्रिस्क्रिप्शन सहेजें व स्टॉक अपडेट करें"}
+            {savingPrescription ? "⏳ सहेजा जा रहा है..." : "💾 पर्चा सहेजें व फार्मेसी काउंटर भेजें"}
           </button>
 
           {prescriptionMsg && (
@@ -1697,7 +2002,7 @@ export default function Home() {
   }
 
   // =========================
-  // 10. FOLLOW-UP TRACKER SCREEN
+  // 12. FOLLOW-UP SCREEN
   // =========================
   if (screen === "followUpScreen" && selectedPatient) {
     return (
@@ -1811,7 +2116,6 @@ export default function Home() {
           {followUpMsg && <div style={{ marginTop: "10px", fontWeight: "bold", color: "#2e7d32" }}>{followUpMsg}</div>}
         </div>
 
-        {/* Previous Follow-up Timeline */}
         <h3 style={{ color: "#333" }}>📜 पूर्व Follow-up इतिहास ({followUps.length})</h3>
         {followUps.length === 0 ? (
           <p>कोई पूर्व Follow-up रिकॉर्ड मौजूद नहीं है।</p>
@@ -1845,7 +2149,7 @@ export default function Home() {
   }
 
   // =========================
-  // 11. BILLING & RECEIPTS SCREEN
+  // 13. BILLING & RECEIPTS SCREEN
   // =========================
   if (screen === "billingScreen" && selectedPatient) {
     const c = Number(consultFee) || 0;
@@ -1905,7 +2209,6 @@ export default function Home() {
           {billMsg && <div style={{ marginTop: "10px", fontWeight: "bold" }}>{billMsg}</div>}
         </div>
 
-        {/* Previous Invoices */}
         <h3 style={{ color: "#333" }}>📜 पूर्व रसीदें ({billsList.length})</h3>
         {billsList.length === 0 ? (
           <p>कोई बिलिंग रिकॉर्ड मौजूद नहीं है।</p>
@@ -1933,7 +2236,7 @@ export default function Home() {
   }
 
   // =========================
-  // 12. PRINT BILL PREVIEW SCREEN
+  // 14. PRINT BILL PREVIEW SCREEN
   // =========================
   if (screen === "printBillPreview" && selectedPatient && currentBill) {
     const b = currentBill;
@@ -2024,30 +2327,7 @@ export default function Home() {
   }
 
   // =========================
-  // 13. PANCHAKARMA PLACEHOLDER SCREEN
-  // =========================
-  if (screen === "panchakarmaPlaceholder" && selectedPatient) {
-    return (
-      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
-          ← रोगी प्रोफाइल
-        </button>
-        <h2>🧘 पंचकर्म व उपक्रम प्रबंधन</h2>
-        <div style={{ background: "#fff", padding: "20px", borderRadius: "10px", border: "1px solid #ce93d8", maxWidth: "500px" }}>
-          <h3 style={{ margin: "0 0 10px 0", color: "#6a1b9a" }}>👤 {selectedPatient.name} (TAT-{selectedPatient.id})</h3>
-          <p style={{ fontSize: "14px", color: "#555", lineHeight: "1.6" }}>
-            यह पंचकर्म मॉड्यूल का मुख्य स्ट्रक्चर है। यहाँ आगे चलकर <strong>स्नेहन, स्वेदन, वमन, विरेचन, बस्ति, नस्य, जानुबस्ति, कटीबस्ति और शिरोधारा</strong> के सिटिंग शेड्यूल, तेल/काढ़ा चयन और डेट-वाइज सेशन ट्रैकिंग जोड़ी जाएगी।
-          </p>
-          <div style={{ background: "#f3e5f5", padding: "12px", borderRadius: "6px", fontWeight: "bold", color: "#6a1b9a", fontSize: "13px" }}>
-            ✨ यह सेक्शन आपके आगामी थेरेपी प्रोटोकॉल और शेड्यूलिंग के लिए आरक्षित है।
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  // =========================
-  // 14. PHARMACY INVENTORY SCREEN
+  // 15. PHARMACY INVENTORY SCREEN
   // =========================
   if (screen === "inventoryScreen") {
     return (
@@ -2088,7 +2368,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Stock List */}
         <h3 style={{ color: "#333" }}>📋 वर्तमान स्टॉक सूची ({inventoryList.length})</h3>
         {inventoryList.length === 0 ? (
           <p>स्टॉक में कोई दवा दर्ज नहीं है।</p>
@@ -2117,7 +2396,7 @@ export default function Home() {
   }
 
   // =========================
-  // 15. SAVED PRESCRIPTION LIST SCREEN
+  // 16. SAVED PRESCRIPTION LIST SCREEN
   // =========================
   if (screen === "prescriptionList" && selectedPatient) {
     return (
@@ -2155,7 +2434,7 @@ export default function Home() {
   }
 
   // =========================
-  // 16. PRINT / PDF PREVIEW SCREEN (With Vitals Bar in Rx)
+  // 17. PRINT / PDF PREVIEW SCREEN
   // =========================
   if (screen === "printPreview" && selectedPatient && currentPrescription) {
     const rx = currentPrescription;
