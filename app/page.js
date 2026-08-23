@@ -151,7 +151,7 @@ export default function Home() {
   const [currentPrescription, setCurrentPrescription] = useState(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
-  // Pharmacy Queue & Dispensing States (Itemized with Custom Phone)
+  // Pharmacy Queue & Dispensing States (Itemized, Editable & Deletable)
   const [pharmacyQueue, setPharmacyQueue] = useState([]);
   const [pharmacySearch, setPharmacySearch] = useState("");
   const [dispenseRx, setDispenseRx] = useState(null);
@@ -581,7 +581,7 @@ export default function Home() {
   }
 
   // =========================
-  // ITEMIZED PHARMACY MODULE
+  // ITEMIZED & EDITABLE PHARMACY MODULE
   // =========================
   async function fetchPharmacyQueue() {
     try {
@@ -606,8 +606,8 @@ export default function Home() {
     const items = (rx.medicines || []).filter(m => m.name && m.name.trim()).map((m) => {
       let defaultUnit = "डब्बी (Jar/Box)";
       if (m.category === "आसव / अरिष्ट" || m.category === "क्वाथ / तैल / अन्य") defaultUnit = "बोतल (Bottle)";
-      if (m.category === "चूर्ण") defaultUnit = "पैकेट (Pkt/Jar)";
-      if (m.category === "वटी / गुटिका") defaultUnit = "डब्बी (Jar)";
+      if (m.category === "चूर्ण") defaultUnit = "पैकेट (Pkt)";
+      if (m.category === "वटी / गुटिका") defaultUnit = "डब्बी (Jar/Box)";
 
       return {
         name: m.name,
@@ -633,6 +633,28 @@ export default function Home() {
     const p = Number(updated[index].pricePerUnit) || 0;
     updated[index].total = q * p;
 
+    setDispenseItems(updated);
+    const grandTotal = updated.reduce((acc, curr) => acc + curr.total, 0);
+    setMedicineBillAmount(grandTotal.toString());
+  }
+
+  function addDispenseItemRow() {
+    setDispenseItems([
+      ...dispenseItems,
+      {
+        name: "",
+        category: "अन्य",
+        dose: "—",
+        qty: 1,
+        unit: "डब्बी (Jar/Box)",
+        pricePerUnit: 0,
+        total: 0
+      }
+    ]);
+  }
+
+  function removeDispenseItemRow(index) {
+    const updated = dispenseItems.filter((_, i) => i !== index);
     setDispenseItems(updated);
     const grandTotal = updated.reduce((acc, curr) => acc + curr.total, 0);
     setMedicineBillAmount(grandTotal.toString());
@@ -684,7 +706,7 @@ export default function Home() {
     text += `*Rx पर्चा सं.:* RX-${dispenseRx.id}\n`;
     text += `*दिनांक व समय:* ${billDate} (${billTime})\n\n`;
     text += `💊 *दी गई दवाइयों का विवरण (Dispensed Items):*\n`;
-    dispenseItems.forEach((m, idx) => {
+    dispenseItems.filter(m => m.name && m.name.trim()).forEach((m, idx) => {
       text += `${idx + 1}. *${m.name}* - ${m.qty} ${m.unit} @ ₹${m.pricePerUnit} = ₹${m.total}\n`;
     });
     text += `\n-------------------------\n`;
@@ -1161,7 +1183,7 @@ export default function Home() {
   }
 
   // =========================
-  // 3. ITEMIZED PHARMACY DISPENSE & BILLING SCREEN
+  // 3. EDITABLE / DELETABLE PHARMACY DISPENSE & BILLING SCREEN
   // =========================
   if (screen === "dispenseScreen" && dispenseRx && dispensePatient) {
     return (
@@ -1172,7 +1194,7 @@ export default function Home() {
 
         <h2>💊 दवा वितरण व आइटम-वार औषधि बिल</h2>
 
-        <div style={{ background: "#fff", padding: "18px", borderRadius: "10px", border: "1.5px solid #7b1fa2", maxWidth: "620px", marginBottom: "16px" }}>
+        <div style={{ background: "#fff", padding: "18px", borderRadius: "10px", border: "1.5px solid #7b1fa2", maxWidth: "650px", marginBottom: "16px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
             <div>
               <strong style={{ fontSize: "16px" }}>👤 {dispensePatient.name}</strong> ({dispensePatient.age || "—"}y / {dispensePatient.gender || "—"})
@@ -1192,22 +1214,29 @@ export default function Home() {
 
           <h4 style={{ color: "#4a148c", margin: "14px 0 8px 0" }}>📦 दवाइयों का वितरण, मात्रा व मूल्य (Dispensing Table):</h4>
           
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", marginBottom: "14px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", marginBottom: "10px" }}>
             <thead>
               <tr style={{ background: "#f3e5f5", color: "#4a148c", textAlign: "left" }}>
-                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>औषधि नाम</th>
-                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "55px" }}>मात्रा</th>
-                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "100px" }}>इकाई (Unit)</th>
-                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "65px" }}>दर (₹)</th>
-                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "70px", textAlign: "right" }}>कुल (₹)</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>औषधि नाम (बदलें/संशोधन)</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "45px" }}>मात्रा</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "95px" }}>इकाई</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "55px" }}>दर (₹)</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "55px", textAlign: "right" }}>कुल (₹)</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "30px", textAlign: "center" }}>हटाएं</th>
               </tr>
             </thead>
             <tbody>
               {dispenseItems.map((item, idx) => (
                 <tr key={idx}>
-                  <td style={{ padding: "6px", border: "1px solid #eee" }}>
-                    <strong>{item.name}</strong>
-                    <div style={{ fontSize: "10px", color: "#777" }}>{item.dose}</div>
+                  <td style={{ padding: "4px", border: "1px solid #eee" }}>
+                    <input
+                      type="text"
+                      value={item.name}
+                      placeholder="दवा का नाम या ब्रांड..."
+                      onChange={(e) => updateDispenseItemRow(idx, "name", e.target.value)}
+                      style={{ width: "100%", padding: "4px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box", fontWeight: "bold", fontSize: "12px" }}
+                    />
+                    {item.dose && <div style={{ fontSize: "10px", color: "#777", marginTop: "2px" }}>Rx: {item.dose}</div>}
                   </td>
                   <td style={{ padding: "4px", border: "1px solid #eee" }}>
                     <input
@@ -1243,10 +1272,28 @@ export default function Home() {
                   <td style={{ padding: "6px", border: "1px solid #eee", textAlign: "right", fontWeight: "bold", color: "#4a148c" }}>
                     ₹{item.total}
                   </td>
+                  <td style={{ padding: "4px", border: "1px solid #eee", textAlign: "center" }}>
+                    <button
+                      type="button"
+                      onClick={() => removeDispenseItemRow(idx)}
+                      style={{ color: "#d32f2f", background: "#ffebee", border: "1px solid #ffcdd2", borderRadius: "4px", cursor: "pointer", padding: "3px 6px", fontWeight: "bold", fontSize: "11px" }}
+                      title="बिल से हटाएं"
+                    >
+                      ✕
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+
+          <button
+            type="button"
+            onClick={addDispenseItemRow}
+            style={{ width: "100%", padding: "7px", background: "#ede7f6", color: "#4a148c", border: "1px dashed #7b1fa2", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "12px", marginBottom: "14px" }}
+          >
+            ➕ अन्य दवा / वस्तु जोड़ें (Add Extra Item)
+          </button>
 
           {/* Grand Total, Custom WhatsApp Phone & Payment Mode */}
           <div style={{ background: "#fdf7ff", padding: "12px", borderRadius: "8px", border: "1px solid #e1bee7", marginBottom: "14px" }}>
