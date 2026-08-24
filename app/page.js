@@ -50,14 +50,6 @@ const REFERRAL_SOURCES = [
   "स्टाफ / कैंप (Camp Reference)"
 ];
 
-// Role PINs
-const PINS = {
-  admin: "1234",
-  doctor: "1111",
-  reception: "2222",
-  pharmacy: "3333"
-};
-
 function formatTime(isoStr) {
   if (!isoStr) return "—";
   return new Date(isoStr).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
@@ -82,12 +74,6 @@ function AssessmentInput({ label, value, onChange, textarea = false, list = null
 }
 
 export default function Home() {
-  // Role Access State
-  const [currentRole, setCurrentRole] = useState(null); // 'admin' | 'doctor' | 'reception' | 'pharmacy'
-  const [enteredPin, setEnteredPin] = useState("");
-  const [selectedRoleToLogin, setSelectedRoleToLogin] = useState("admin");
-  const [loginError, setLoginError] = useState("");
-
   const [screen, setScreen] = useState("home");
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
@@ -215,7 +201,6 @@ export default function Home() {
   const [filterStartDate, setFilterStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [filterEndDate, setFilterEndDate] = useState(new Date().toISOString().slice(0, 10));
   const [filteredReportBills, setFilteredReportBills] = useState([]);
-  const [filteredReportPatients, setFilteredReportPatients] = useState([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportStats, setReportStats] = useState({
     opdCount: 0,
@@ -227,13 +212,17 @@ export default function Home() {
     onlineTotal: 0
   });
 
-  // Inventory States
+  // Enhanced Inventory States
   const [inventoryList, setInventoryList] = useState([]);
+  const [invSearch, setInvSearch] = useState("");
   const [invMedName, setInvMedName] = useState("");
+  const [invBrand, setInvBrand] = useState("Baidyanath");
   const [invCategory, setInvCategory] = useState("वटी / गुटिका");
   const [invQty, setInvQty] = useState("");
-  const [invUnit, setInvUnit] = useState("Vati (Tablets)");
+  const [invUnit, setInvUnit] = useState("डब्बी (Jar/Box)");
+  const [invPrice, setInvPrice] = useState("");
   const [savingInv, setSavingInv] = useState(false);
+  const [lowStockCount, setLowStockCount] = useState(0);
 
   // Patient Documents State
   const [patientDocs, setPatientDocs] = useState([]);
@@ -242,7 +231,7 @@ export default function Home() {
   const [newDocNotes, setNewDocNotes] = useState("");
   const [savingDoc, setSavingDoc] = useState(false);
 
-  // Today Clinical Quick Stats
+  // Clinical Counters
   const [stats, setStats] = useState({ 
     todayCount: 0, 
     waitingCount: 0, 
@@ -251,34 +240,11 @@ export default function Home() {
   });
 
   useEffect(() => {
-    // Restore session role if saved
-    const savedRole = localStorage.getItem("tathastu_role");
-    if (savedRole) setCurrentRole(savedRole);
-
     loadHospitalSettings();
     loadMasterPresets();
     fetchStats();
+    fetchInventory();
   }, []);
-
-  function handleLogin(e) {
-    e.preventDefault();
-    setLoginError("");
-    if (enteredPin === PINS[selectedRoleToLogin]) {
-      setCurrentRole(selectedRoleToLogin);
-      localStorage.setItem("tathastu_role", selectedRoleToLogin);
-      setEnteredPin("");
-      setScreen("home");
-    } else {
-      setLoginError("❌ गलत पिन कोड! कृपया सही PIN दर्ज करें।");
-    }
-  }
-
-  function handleLogout() {
-    setCurrentRole(null);
-    localStorage.removeItem("tathastu_role");
-    setEnteredPin("");
-    setScreen("loginScreen");
-  }
 
   async function loadHospitalSettings() {
     try {
@@ -383,7 +349,6 @@ export default function Home() {
     }
   }
 
-  // Fetch Date-Wise Income & OPD Records
   async function fetchDateWiseAccounts(startD = filterStartDate, endD = filterEndDate) {
     setReportLoading(true);
     try {
@@ -410,11 +375,9 @@ export default function Home() {
       const totalMedSales = Math.max(medFromBills, medFromRx);
 
       const grandTot = bList.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0) || (consult + proc + totalMedSales);
-
       const cash = bList.filter(b => (b.payment_mode || "").includes("Cash") || (b.payment_mode || "").includes("नकद")).reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0);
       const online = grandTot - cash;
 
-      setFilteredReportPatients(pList);
       setFilteredReportBills(bList);
       setReportStats({
         opdCount: pList.length,
@@ -663,17 +626,6 @@ export default function Home() {
       const { data, error } = await supabase.from("prescriptions").insert([newRx]).select().single();
       if (error) throw error;
 
-      for (const m of (cleanMedicines.length > 0 ? cleanMedicines : medicines)) {
-        if (m.name && m.name.trim()) {
-          const { data: invMatches } = await supabase.from("inventory").select("*").ilike("medicine_name", `%${m.name.trim()}%`);
-          if (invMatches && invMatches.length > 0) {
-            const item = invMatches[0];
-            const updatedStock = Math.max(0, (item.stock_quantity || 0) - 1);
-            await supabase.from("inventory").update({ stock_quantity: updatedStock }).eq("id", item.id);
-          }
-        }
-      }
-
       await updatePatientOpdStatus(selectedPatient.id, "Completed");
       setCurrentPrescription(data || newRx);
       setPrescriptionMsg("✅ पर्चा सहेजा गया! फार्मेसी काउंटर पर उपलब्ध।");
@@ -698,7 +650,9 @@ export default function Home() {
     }
   }
 
-  // Pharmacy Functions
+  // =========================
+  // PHARMACY MODULE & AUTO INVENTORY DEDUCTION
+  // =========================
   async function fetchPharmacyQueue() {
     try {
       const { data, error } = await supabase
@@ -723,21 +677,25 @@ export default function Home() {
       let defaultUnit = "डब्बी (Jar/Box)";
       if (m.category === "आसव / अरिष्ट" || m.category === "क्वाथ / तैल / अन्य") defaultUnit = "बोतल (Bottle)";
       if (m.category === "चूर्ण") defaultUnit = "पैकेट (Pkt)";
-      if (m.category === "वटी / गुटिका") defaultUnit = "डब्बी (Jar/Box)";
+
+      const matchingInv = inventoryList.find(inv => inv.medicine_name.toLowerCase().includes(m.name.toLowerCase()));
+      const price = matchingInv?.price || 0;
 
       return {
         name: m.name,
         category: m.category || "औषधि",
         dose: m.dose || "—",
         qty: 1,
-        unit: defaultUnit,
-        pricePerUnit: 0,
-        total: 0
+        unit: matchingInv?.unit || defaultUnit,
+        pricePerUnit: price,
+        total: price,
+        availableStock: matchingInv?.stock_quantity ?? "—"
       };
     });
 
     setDispenseItems(items);
-    setMedicineBillAmount(rx.medicine_bill_amount ? rx.medicine_bill_amount.toString() : "0");
+    const calculatedTotal = items.reduce((acc, curr) => acc + curr.total, 0);
+    setMedicineBillAmount(rx.medicine_bill_amount ? rx.medicine_bill_amount.toString() : calculatedTotal.toString());
     setScreen("dispenseScreen");
   }
 
@@ -764,7 +722,8 @@ export default function Home() {
         qty: 1,
         unit: "डब्बी (Jar/Box)",
         pricePerUnit: 0,
-        total: 0
+        total: 0,
+        availableStock: "—"
       }
     ]);
   }
@@ -781,12 +740,28 @@ export default function Home() {
     setDispensing(true);
     try {
       const amount = Number(medicineBillAmount) || 0;
+
+      // 1. Update Prescription Dispense Status
       await supabase.from("prescriptions").update({
         pharmacy_status: "Dispensed",
         medicine_bill_amount: amount,
         dispensed_at: new Date().toISOString()
       }).eq("id", dispenseRx.id);
 
+      // 2. Auto Deduct Inventory Stock
+      for (const item of dispenseItems) {
+        if (item.name && item.name.trim()) {
+          const { data: invMatches } = await supabase.from("inventory").select("*").ilike("medicine_name", `%${item.name.trim()}%`);
+          if (invMatches && invMatches.length > 0) {
+            const stockRow = invMatches[0];
+            const deductQty = Number(item.qty) || 1;
+            const updatedStock = Math.max(0, (stockRow.stock_quantity || 0) - deductQty);
+            await supabase.from("inventory").update({ stock_quantity: updatedStock }).eq("id", stockRow.id);
+          }
+        }
+      }
+
+      // 3. Create Billing Receipt
       if (amount > 0 && dispensePatient?.id) {
         await supabase.from("billings").insert([{
           patient_id: dispensePatient.id,
@@ -801,6 +776,7 @@ export default function Home() {
         }]);
       }
 
+      fetchInventory();
       fetchStats();
       setScreen("printMedicineBillPreview");
     } catch (err) {
@@ -833,6 +809,74 @@ export default function Home() {
     const formattedPhone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
     const url = formattedPhone ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(text)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
     window.open(url, "_blank");
+  }
+
+  // =========================
+  // ENHANCED INVENTORY & LOW-STOCK MODULE
+  // =========================
+  async function fetchInventory() {
+    try {
+      const { data, error } = await supabase.from("inventory").select("*").order("medicine_name", { ascending: true });
+      if (error) throw error;
+      const list = data || [];
+      setInventoryList(list);
+      const lowCount = list.filter(i => (Number(i.stock_quantity) || 0) <= 10).length;
+      setLowStockCount(lowCount);
+    } catch (err) {
+      console.log("Inventory load error:", err.message);
+    }
+  }
+
+  async function addOrUpdateInventoryItem() {
+    if (!invMedName.trim() || !invQty) return alert("कृपया दवा का नाम और स्टॉक मात्रा भरें");
+    setSavingInv(true);
+    try {
+      const { data: existing } = await supabase.from("inventory").select("*").ilike("medicine_name", invMedName.trim());
+
+      if (existing && existing.length > 0) {
+        // Update Stock
+        const currentItem = existing[0];
+        const newTotal = (currentItem.stock_quantity || 0) + Number(invQty);
+        await supabase.from("inventory").update({
+          stock_quantity: newTotal,
+          brand: invBrand,
+          category: invCategory,
+          unit: invUnit,
+          price: Number(invPrice) || currentItem.price || 0
+        }).eq("id", currentItem.id);
+      } else {
+        // Insert New Item
+        await supabase.from("inventory").insert([{
+          medicine_name: invMedName.trim(),
+          brand: invBrand,
+          category: invCategory,
+          stock_quantity: Number(invQty),
+          unit: invUnit,
+          price: Number(invPrice) || 0,
+          min_alert_limit: 10
+        }]);
+      }
+
+      setInvMedName("");
+      setInvQty("");
+      setInvPrice("");
+      fetchInventory();
+      alert("✅ स्टॉक सफलतापूर्वक अपडेट हो गया!");
+    } catch (err) {
+      alert("दवा जोड़ने में त्रुटि: " + err.message);
+    } finally {
+      setSavingInv(false);
+    }
+  }
+
+  async function updateStockDirectly(id, currentStock, delta) {
+    const newStock = Math.max(0, currentStock + delta);
+    try {
+      await supabase.from("inventory").update({ stock_quantity: newStock }).eq("id", id);
+      fetchInventory();
+    } catch (e) {
+      console.log(e);
+    }
   }
 
   // Follow-up Functions
@@ -971,41 +1015,6 @@ export default function Home() {
     window.open(url, "_blank");
   }
 
-  // Inventory Functions
-  async function fetchInventory() {
-    try {
-      const { data, error } = await supabase.from("inventory").select("*").order("medicine_name", { ascending: true });
-      if (error) throw error;
-      setInventoryList(data || []);
-      setScreen("inventoryScreen");
-    } catch (err) {
-      alert("स्टॉक सूची लोड नहीं हुई: " + err.message);
-    }
-  }
-
-  async function addInventoryItem() {
-    if (!invMedName.trim() || !invQty) return alert("कृपया दवा का नाम और मात्रा भरें");
-    setSavingInv(true);
-    try {
-      const item = {
-        medicine_name: invMedName.trim(),
-        category: invCategory,
-        stock_quantity: Number(invQty),
-        unit: invUnit,
-        min_alert_limit: 10
-      };
-      const { error } = await supabase.from("inventory").insert([item]);
-      if (error) throw error;
-      setInvMedName("");
-      setInvQty("");
-      fetchInventory();
-    } catch (err) {
-      alert("दवा जोड़ने में त्रुटि: " + err.message);
-    } finally {
-      setSavingInv(false);
-    }
-  }
-
   // Patient Documents Functions
   async function fetchPatientDocuments() {
     if (!selectedPatient?.id) return;
@@ -1098,75 +1107,6 @@ export default function Home() {
     window.open(url, "_blank");
   }
 
-  // =========================
-  // 0. ROLE PIN LOGIN SCREEN
-  // =========================
-  if (!currentRole || screen === "loginScreen") {
-    return (
-      <main style={{ minHeight: "100vh", background: "#e8f5e9", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", fontFamily: "Arial, sans-serif" }}>
-        <div style={{ background: "#fff", padding: "28px 22px", borderRadius: "14px", border: "1.5px solid #81c784", maxWidth: "380px", width: "100%", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
-          
-          <div style={{ textAlign: "center", marginBottom: "20px" }}>
-            <h1 style={{ color: "#2e7d32", margin: "0 0 4px 0", fontSize: "24px" }}>🌿 Tathastu</h1>
-            <h2 style={{ fontSize: "14px", color: "#333", margin: "0 0 4px 0" }}>{hospitalInfo.hospital_name}</h2>
-            <div style={{ fontSize: "12px", color: "#666" }}>सुरक्षित डेस्क लॉगिन (PIN Login)</div>
-          </div>
-
-          <form onSubmit={handleLogin} style={{ display: "grid", gap: "14px" }}>
-            <div>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px", color: "#333" }}>
-                🔑 अपना डेस्क / रोल चुनें:
-              </label>
-              <select
-                value={selectedRoleToLogin}
-                onChange={(e) => { setSelectedRoleToLogin(e.target.value); setLoginError(""); }}
-                style={{ width: "100%", padding: "11px", borderRadius: "6px", border: "1.5px solid #2e7d32", fontWeight: "bold", background: "#f9fbf9", fontSize: "14px" }}
-              >
-                <option value="admin">👑 Admin Desk (Full Access & Accounts)</option>
-                <option value="doctor">👨‍⚕️ वैद्य डेस्क (Doctor Desk - Clinical & OPD)</option>
-                <option value="reception">🏢 रिसेप्शन डेस्क (Registration & Queue)</option>
-                <option value="pharmacy">💊 मेडिकल स्टोर (Pharmacy & Stock)</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px", color: "#333" }}>
-                🔒 डेस्क सुरक्षा पिन (Security PIN):
-              </label>
-              <input
-                type="password"
-                maxLength="6"
-                placeholder="4-अंकीय PIN दर्ज करें..."
-                value={enteredPin}
-                autoFocus
-                onChange={(e) => setEnteredPin(e.target.value)}
-                style={{ width: "100%", padding: "12px", borderRadius: "6px", border: "1.5px solid #ccc", boxSizing: "border-box", fontSize: "16px", textAlign: "center", letterSpacing: "4px" }}
-              />
-            </div>
-
-            <button
-              type="submit"
-              style={{ width: "100%", padding: "12px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "bold", fontSize: "15px", cursor: "pointer", marginTop: "6px" }}
-            >
-              🔓 डेस्क में प्रवेश करें
-            </button>
-
-            {loginError && (
-              <div style={{ color: "#d32f2f", background: "#ffebee", padding: "8px", borderRadius: "6px", fontSize: "12px", textAlign: "center", fontWeight: "bold" }}>
-                {loginError}
-              </div>
-            )}
-          </form>
-
-          <div style={{ marginTop: "20px", borderTop: "1px dashed #ddd", paddingTop: "12px", fontSize: "11px", color: "#777", textAlign: "center", lineHeight: "1.5" }}>
-            डिफ़ॉल्ट पिन: <strong>Admin: 1234</strong> | <strong>Doctor: 1111</strong><br />
-            <strong>Reception: 2222</strong> | <strong>Pharmacy: 3333</strong>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
   const searchText = search.toLowerCase().trim();
   const filteredPatients = patients.filter((p) => {
     const pName = (p.name || "").toLowerCase();
@@ -1183,21 +1123,9 @@ export default function Home() {
   });
 
   // =========================
-  // 1. HOME SCREEN (ROLE-BASED & CLEAN CLINICAL)
+  // 1. HOME SCREEN (CLEAN & PROFESSIONAL)
   // =========================
   if (screen === "home") {
-    const isAdmin = currentRole === "admin";
-    const isDoctor = currentRole === "doctor" || isAdmin;
-    const isReception = currentRole === "reception" || isAdmin;
-    const isPharmacy = currentRole === "pharmacy" || isAdmin;
-
-    const roleBadge = {
-      admin: { name: "👑 Admin Desk (Master Control)", color: "#006064", bg: "#e0f7fa" },
-      doctor: { name: "👨‍⚕️ वैद्य डेस्क (Doctor Desk)", color: "#1b5e20", bg: "#e8f5e9" },
-      reception: { name: "🏢 रिसेप्शन डेस्क (Reception)", color: "#e65100", bg: "#fff8e1" },
-      pharmacy: { name: "💊 मेडिकल स्टोर (Pharmacy)", color: "#4a148c", bg: "#f3e5f5" }
-    }[currentRole] || { name: "डेस्क", color: "#333", bg: "#eee" };
-
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
         
@@ -1209,33 +1137,19 @@ export default function Home() {
           {REFERRAL_SOURCES.map((r, i) => <option key={i} value={r} />)}
         </datalist>
 
-        {/* Top Bar with Role Badge & Logout */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
           <div>
             <h1 style={{ color: "#2e7d32", margin: "0 0 2px 0" }}>🌿 Tathastu</h1>
-            <h2 style={{ fontSize: "15px", color: "#333", margin: "0 0 4px 0" }}>{hospitalInfo.hospital_name}</h2>
-            <span style={{ background: roleBadge.bg, color: roleBadge.color, padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
-              {roleBadge.name}
-            </span>
+            <h2 style={{ fontSize: "15px", color: "#333", margin: "0 0 2px 0" }}>{hospitalInfo.hospital_name}</h2>
+            <div style={{ fontSize: "12px", color: "#666" }}>वैद्य डेस्क, लाइव OPD व फार्मेसी</div>
           </div>
           
-          <div style={{ display: "flex", gap: "6px" }}>
-            {isAdmin && (
-              <button
-                onClick={() => setScreen("settingsScreen")}
-                style={{ padding: "6px 10px", background: "#fff", border: "1px solid #ccc", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
-              >
-                ⚙️ सेटिंग्स
-              </button>
-            )}
-            <button
-              onClick={handleLogout}
-              style={{ padding: "6px 10px", background: "#ffebee", border: "1px solid #ffcdd2", color: "#c62828", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
-              title="लॉगआउट"
-            >
-              🚪 Exit
-            </button>
-          </div>
+          <button
+            onClick={() => setScreen("settingsScreen")}
+            style={{ padding: "6px 10px", background: "#fff", border: "1px solid #ccc", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
+          >
+            ⚙️ सेटिंग्स
+          </button>
         </div>
 
         {/* Clinical OPD Status Counters */}
@@ -1264,57 +1178,43 @@ export default function Home() {
           />
         </div>
 
-        {/* Role-Restricted Action Grid */}
+        {/* Action Grid */}
         <div style={{ display: "grid", gap: "10px", maxWidth: "480px" }}>
-          
-          {/* Reception / Admin: Registration */}
-          {isReception && (
-            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "bold", textAlign: "left" }} onClick={() => setScreen("newPatient")}>
-              ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry, Vitals & Referral)
-            </button>
-          )}
+          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "bold", textAlign: "left" }} onClick={() => setScreen("newPatient")}>
+            ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry, Vitals & Referral)
+          </button>
 
-          {/* Doctor / Admin: Waiting Queue & Patient List */}
-          {isDoctor && (
-            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1.5px solid #ffb74d", background: "#fff8e1", fontWeight: "bold", textAlign: "left", color: "#e65100" }} onClick={() => openPatientList("Waiting")}>
-              ⏳ <strong>लाइव OPD कतार (Waiting Room - {stats.waitingCount})</strong>
-            </button>
-          )}
+          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1.5px solid #ba68c8", background: "#f3e5f5", fontWeight: "bold", textAlign: "left", color: "#4a148c" }} onClick={fetchPharmacyQueue}>
+            💊 <strong>मेडिकल स्टोर काउंटर (Pharmacy Rx Dispense & Bill)</strong>
+          </button>
 
-          {/* Doctor / Reception / Admin: Patient Directory */}
-          {(isDoctor || isReception) && (
-            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("All")}>
-              👤 <strong>समस्त पंजीकृत रोगी सूची</strong> (UHID Directory & Re-Queue)
-            </button>
-          )}
+          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ffb74d", background: "#fff8e1", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("Waiting")}>
+            ⏳ <strong>लाइव OPD कतार (Waiting Room - {stats.waitingCount})</strong>
+          </button>
 
-          {/* Pharmacy / Admin: Medical Store Dispense */}
-          {isPharmacy && (
-            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ba68c8", background: "#f3e5f5", fontWeight: "bold", textAlign: "left", color: "#4a148c" }} onClick={fetchPharmacyQueue}>
-              💊 <strong>मेडिकल स्टोर काउंटर (Pharmacy Rx Dispense & Bill)</strong>
-            </button>
-          )}
+          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("All")}>
+            👤 <strong>समस्त पंजीकृत रोगी सूची</strong> (UHID Directory & Re-Queue)
+          </button>
 
-          {/* Pharmacy / Admin: Inventory */}
-          {isPharmacy && (
-            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #81c784", background: "#f1f8e9", fontWeight: "500", textAlign: "left" }} onClick={fetchInventory}>
-              📦 <strong>औषधि भंडार व स्टॉक (Pharmacy Inventory)</strong>
-            </button>
-          )}
+          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1.5px solid #81c784", background: "#f1f8e9", fontWeight: "bold", textAlign: "left", color: "#2e7d32", display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={fetchInventory}>
+            <span>📦 <strong>औषधि भंडार व स्टॉक (Pharmacy Inventory)</strong></span>
+            {lowStockCount > 0 && (
+              <span style={{ background: "#d32f2f", color: "#fff", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: "bold" }}>
+                ⚠️ {lowStockCount} Low
+              </span>
+            )}
+          </button>
 
-          {/* Admin Exclusive: Date-Wise Income & Accounts */}
-          {isAdmin && (
-            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1.5px solid #80deea", background: "#e0f7fa", fontWeight: "bold", textAlign: "left", color: "#006064" }} onClick={() => fetchDateWiseAccounts(filterStartDate, filterEndDate)}>
-              📊 <strong>तारीख-वार क्लिनिक आय व हिसाब (Date-Wise Accounts & Income)</strong>
-            </button>
-          )}
+          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1.5px solid #80deea", background: "#e0f7fa", fontWeight: "bold", textAlign: "left", color: "#006064" }} onClick={() => fetchDateWiseAccounts(filterStartDate, filterEndDate)}>
+            📊 <strong>तारीख-वार क्लिनिक आय व हिसाब (Accounts & Income)</strong>
+          </button>
         </div>
       </main>
     );
   }
 
   // =========================
-  // 1.1 DATE-WISE INCOME & FINANCIAL REPORT (ADMIN EXCLUSIVE)
+  // 1.1 DATE-WISE INCOME REPORT
   // =========================
   if (screen === "incomeReportScreen") {
     return (
@@ -1325,7 +1225,6 @@ export default function Home() {
 
         <h2 style={{ margin: "0 0 12px 0", color: "#006064" }}>📊 दिनांक-वार क्लिनिक आय व वित्तीय हिसाब</h2>
 
-        {/* Date Filter Controls */}
         <div style={{ background: "#fff", padding: "14px", borderRadius: "10px", border: "1.5px solid #80deea", maxWidth: "550px", marginBottom: "16px" }}>
           <div style={{ fontSize: "12px", fontWeight: "bold", color: "#006064", marginBottom: "8px" }}>📅 दिनांक फ़िल्टर (Date Range Filter):</div>
           
@@ -1372,7 +1271,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Calculated Financial Summary Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: "8px", maxWidth: "550px", marginBottom: "14px" }}>
           <div style={{ background: "#fff", border: "1px solid #c5e1a5", padding: "10px", borderRadius: "8px", textAlign: "center" }}>
             <div style={{ fontSize: "11px", color: "#33691e", fontWeight: "bold" }}>👨‍⚕️ OPD परामर्श</div>
@@ -1392,7 +1290,7 @@ export default function Home() {
           </div>
         </div>
 
-        <h3 style={{ color: "#333", margin: "16px 0 10px 0" }}>📜 चयनित अवधि की रसीदें ({filteredReportBills.length})</h3>
+        <h3 style={{ color: "#333", margin: "16px 0 10px 0" }}>📜 रसीदें ({filteredReportBills.length})</h3>
 
         {filteredReportBills.length === 0 ? (
           <p>इस दिनांक सीमा में कोई बिलिंग रिकॉर्ड दर्ज नहीं है।</p>
@@ -1513,7 +1411,7 @@ export default function Home() {
   }
 
   // =========================
-  // 3. EDITABLE PHARMACY DISPENSE SCREEN
+  // 3. EDITABLE PHARMACY DISPENSE SCREEN (WITH LIVE STOCK INFO)
   // =========================
   if (screen === "dispenseScreen" && dispenseRx && dispensePatient) {
     return (
@@ -1566,7 +1464,9 @@ export default function Home() {
                       onChange={(e) => updateDispenseItemRow(idx, "name", e.target.value)}
                       style={{ width: "100%", padding: "4px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box", fontWeight: "bold", fontSize: "12px" }}
                     />
-                    {item.dose && <div style={{ fontSize: "10px", color: "#777", marginTop: "2px" }}>Rx: {item.dose}</div>}
+                    <div style={{ fontSize: "10px", color: item.availableStock <= 10 && item.availableStock !== "—" ? "#d32f2f" : "#666", marginTop: "2px" }}>
+                      स्टॉक: {item.availableStock} | Rx: {item.dose}
+                    </div>
                   </td>
                   <td style={{ padding: "4px", border: "1px solid #eee" }}>
                     <input
@@ -1663,7 +1563,7 @@ export default function Home() {
               disabled={dispensing}
               style={{ padding: "12px", background: "#7b1fa2", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", fontSize: "15px", cursor: "pointer" }}
             >
-              {dispensing ? "⏳ प्रक्रियाधीन..." : "✅ दवा दी गई व बिल प्रिंट करें"}
+              {dispensing ? "⏳ प्रक्रियाधीन..." : "✅ दवा दें, स्टॉक घटाएं व बिल प्रिंट करें"}
             </button>
 
             <button
@@ -1717,7 +1617,7 @@ export default function Home() {
           <div style={{ textAlign: "center", borderBottom: "2px solid #7b1fa2", paddingBottom: "10px", marginBottom: "14px" }}>
             <h2 style={{ margin: "0", color: "#7b1fa2", fontSize: "20px" }}>🌿 {hospitalInfo.hospital_name}</h2>
             <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#666" }}>{hospitalInfo.address} | 📱 {hospitalInfo.contact_phone}</p>
-            <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#4a148c", fontWeight: "bold" }}>औषधि बिक्री रसीद (Pharmacy Cash/Credit Memo)</p>
+            <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#4a148c", fontWeight: "bold" }}>औषधि बिक्री रसीद (Pharmacy Cash Memo)</p>
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "14px", background: "#f3e5f5", padding: "8px", borderRadius: "6px" }}>
@@ -1780,7 +1680,156 @@ export default function Home() {
   }
 
   // =========================
-  // 4. MASTER SETTINGS SCREEN (ADMIN EXCLUSIVE)
+  // 15. ENHANCED PHARMACY INVENTORY SCREEN (WITH BULK RESTOCK & LOW STOCK FILTER)
+  // =========================
+  if (screen === "inventoryScreen") {
+    const filteredInv = inventoryList.filter(item => 
+      (item.medicine_name || "").toLowerCase().includes(invSearch.toLowerCase()) ||
+      (item.brand || "").toLowerCase().includes(invSearch.toLowerCase()) ||
+      (item.category || "").toLowerCase().includes(invSearch.toLowerCase())
+    );
+
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("home")}>
+          ← वापस होम
+        </button>
+        
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+          <h2 style={{ margin: 0, color: "#2e7d32" }}>📦 औषधि भंडार व स्टॉक (Inventory)</h2>
+          {lowStockCount > 0 && (
+            <span style={{ background: "#ffebee", border: "1px solid #ffcdd2", color: "#c62828", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold" }}>
+              ⚠️ {lowStockCount} दवाइयों का स्टॉक कम है!
+            </span>
+          )}
+        </div>
+
+        {/* Add / Restock Medicine Form */}
+        <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1.5px solid #81c784", maxWidth: "600px", marginBottom: "20px" }}>
+          <h3 style={{ margin: "0 0 12px 0", color: "#2e7d32" }}>➕ नया स्टॉक जोड़ें / अपडेट करें (Restock)</h3>
+          <div style={{ display: "grid", gap: "10px" }}>
+            <input
+              placeholder="दवा का नाम (उदा. Chandraprabha Vati)..."
+              value={invMedName}
+              onChange={(e) => setInvMedName(e.target.value)}
+              style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc", fontSize: "14px", fontWeight: "bold" }}
+            />
+            
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <select value={invBrand} onChange={(e) => setInvBrand(e.target.value)} style={{ padding: "9px", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }}>
+                <option value="Baidyanath">Baidyanath (बैद्यनाथ)</option>
+                <option value="Dabur">Dabur (डाबर)</option>
+                <option value="Dhootapapeshwar">Dhootapapeshwar (धूतपापेश्वर)</option>
+                <option value="Patanjali">Patanjali (पतंजलि)</option>
+                <option value="Himalaya">Himalaya</option>
+                <option value="Kottakkal">Kottakkal Arya Vaidya Sala</option>
+                <option value="AVP Ayurveda">AVP Ayurveda</option>
+                <option value="Self / अन्य">Self Prepared / अन्य</option>
+              </select>
+
+              <select value={invCategory} onChange={(e) => setInvCategory(e.target.value)} style={{ padding: "9px", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }}>
+                <option value="वटी / गुटिका">वटी / गुटिका</option>
+                <option value="आसव / अरिष्ट">आसव / अरिष्ट</option>
+                <option value="चूर्ण">चूर्ण</option>
+                <option value="गुग्गुलु / रस / भस्म">गुग्गुलु / रस / भस्म</option>
+                <option value="क्वाथ / तैल / अन्य">क्वाथ / तैल / अन्य</option>
+              </select>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+              <input
+                type="number"
+                placeholder="मात्रा (Qty) *"
+                value={invQty}
+                onChange={(e) => setInvQty(e.target.value)}
+                style={{ padding: "9px", borderRadius: "6px", border: "1px solid #ccc" }}
+              />
+              <select value={invUnit} onChange={(e) => setInvUnit(e.target.value)} style={{ padding: "9px", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }}>
+                <option value="डब्बी (Jar/Box)">डब्बी (Jar/Box)</option>
+                <option value="स्ट्रिप (Strip)">स्ट्रिप (Strip)</option>
+                <option value="बोतल (Bottle)">बोतल (Bottle)</option>
+                <option value="पैकेट (Pkt)">पैकेट (Pkt)</option>
+                <option value="पीस (Pcs)">पीस (Pcs)</option>
+              </select>
+              <input
+                type="number"
+                placeholder="प्रति दर ₹"
+                value={invPrice}
+                onChange={(e) => setInvPrice(e.target.value)}
+                style={{ padding: "9px", borderRadius: "6px", border: "1px solid #ccc" }}
+              />
+            </div>
+
+            <button onClick={addOrUpdateInventoryItem} disabled={savingInv} style={{ padding: "12px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "14px" }}>
+              {savingInv ? "⏳ सहेजा जा रहा है..." : "➕ स्टॉक में जोड़ें / सेव करें"}
+            </button>
+          </div>
+        </div>
+
+        {/* Search & Stock Filter */}
+        <div style={{ maxWidth: "600px", marginBottom: "12px" }}>
+          <input
+            type="text"
+            placeholder="🔎 दवा, ब्रांड (Baidyanath/Dabur) या वर्ग से खोजें..."
+            value={invSearch}
+            onChange={(e) => setInvSearch(e.target.value)}
+            style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1.5px solid #2e7d32", boxSizing: "border-box", background: "#fff" }}
+          />
+        </div>
+
+        <h3 style={{ color: "#333", margin: "14px 0 8px 0" }}>📋 वर्तमान स्टॉक सूची ({filteredInv.length})</h3>
+        
+        {filteredInv.length === 0 ? (
+          <p>कोई दवा मेल नहीं खाती।</p>
+        ) : (
+          <div style={{ display: "grid", gap: "8px", maxWidth: "600px" }}>
+            {filteredInv.map((item) => {
+              const isLow = (Number(item.stock_quantity) || 0) <= 10;
+              return (
+                <div key={item.id} style={{ background: "#fff", padding: "12px", borderRadius: "8px", border: isLow ? "1.5px solid #ef5350" : "1px solid #ddd", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <strong style={{ fontSize: "15px", color: isLow ? "#c62828" : "#222" }}>
+                      {item.medicine_name} {isLow && "⚠️"}
+                    </strong>
+                    <div style={{ fontSize: "12px", color: "#666" }}>
+                      ब्रांड: <strong>{item.brand || "Standard"}</strong> | {item.category} | दर: ₹{item.price || 0}
+                    </div>
+                  </div>
+                  
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: "18px", fontWeight: "bold", color: isLow ? "#d32f2f" : "#2e7d32" }}>
+                      {item.stock_quantity} <span style={{ fontSize: "11px", fontWeight: "normal", color: "#555" }}>{item.unit}</span>
+                    </div>
+                    
+                    {/* Quick + / - Adjuster */}
+                    <div style={{ display: "flex", gap: "4px", marginTop: "4px", justifyContent: "flex-end" }}>
+                      <button
+                        onClick={() => updateStockDirectly(item.id, item.stock_quantity, -1)}
+                        style={{ padding: "2px 8px", background: "#ffebee", border: "1px solid #ffcdd2", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", fontSize: "12px" }}
+                        title="1 कम करें"
+                      >
+                        -1
+                      </button>
+                      <button
+                        onClick={() => updateStockDirectly(item.id, item.stock_quantity, 10)}
+                        style={{ padding: "2px 8px", background: "#e8f5e9", border: "1px solid #c8e6c9", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", fontSize: "12px" }}
+                        title="+10 जोड़ें"
+                      >
+                        +10
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </main>
+    );
+  }
+
+  // =========================
+  // 4. MASTER SETTINGS SCREEN
   // =========================
   if (screen === "settingsScreen") {
     const getPlaceholderText = () => {
@@ -2171,15 +2220,13 @@ export default function Home() {
   }
 
   // =========================
-  // 8. PATIENT PROFILE SCREEN (ROLE PROTECTED)
+  // 8. PATIENT PROFILE SCREEN
   // =========================
   if (screen === "profile" && selectedPatient) {
     const p = selectedPatient;
     const status = p.opd_status || "Waiting";
     const isWaiting = status === "Waiting";
     const isNoShow = status === "NoShow";
-    const isAdmin = currentRole === "admin";
-    const isDoctor = currentRole === "doctor" || isAdmin;
 
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
@@ -2240,48 +2287,40 @@ export default function Home() {
 
           <hr style={{ margin: "12px 0" }} />
 
-          {/* Clinical Features for Doctor & Admin */}
-          {isDoctor && (
-            <>
-              <button
-                onClick={() => { setAssessmentMessage(""); setScreen("assessment"); }}
-                style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", borderRadius: "6px", border: "1px solid #ccc", background: "#fff", textAlign: "left" }}
-              >
-                📋 <strong>Clinical Assessment</strong> (चिकित्सकीय परीक्षण)
-              </button>
+          <button
+            onClick={() => { setAssessmentMessage(""); setScreen("assessment"); }}
+            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", borderRadius: "6px", border: "1px solid #ccc", background: "#fff", textAlign: "left" }}
+          >
+            📋 <strong>Clinical Assessment</strong> (चिकित्सकीय परीक्षण)
+          </button>
 
-              <button
-                onClick={() => { setPrescriptionMsg(""); setScreen("prescription"); }}
-                style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e8f5e9", border: "1px solid #81c784", borderRadius: "6px", textAlign: "left" }}
-              >
-                💊 <strong>नया Prescription</strong> (पर्चा बनाएं व फार्मेसी भेजें)
-              </button>
+          <button
+            onClick={() => { setPrescriptionMsg(""); setScreen("prescription"); }}
+            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e8f5e9", border: "1px solid #81c784", borderRadius: "6px", textAlign: "left" }}
+          >
+            💊 <strong>नया Prescription</strong> (पर्चा बनाएं व फार्मेसी भेजें)
+          </button>
 
-              <button
-                onClick={fetchPatientDocuments}
-                style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e1f5fe", border: "1px solid #81d4fa", borderRadius: "6px", textAlign: "left" }}
-              >
-                📑 <strong>जाँच व रिपोर्ट फाइलें (Lab / USG / ECG)</strong>
-              </button>
+          <button
+            onClick={fetchPatientDocuments}
+            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e1f5fe", border: "1px solid #81d4fa", borderRadius: "6px", textAlign: "left" }}
+          >
+            📑 <strong>जाँच व रिपोर्ट फाइलें (Lab / USG / ECG)</strong>
+          </button>
 
-              <button
-                onClick={fetchFollowUps}
-                style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#fff3e0", border: "1px solid #ffb74d", borderRadius: "6px", textAlign: "left" }}
-              >
-                🔄 <strong>अनुवर्तन (Follow-up Tracker)</strong>
-              </button>
-            </>
-          )}
+          <button
+            onClick={fetchFollowUps}
+            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#fff3e0", border: "1px solid #ffb74d", borderRadius: "6px", textAlign: "left" }}
+          >
+            🔄 <strong>अनुवर्तन (Follow-up Tracker)</strong>
+          </button>
 
-          {/* Billing Receipts (Admin & Reception) */}
-          {(isAdmin || currentRole === "reception") && (
-            <button
-              onClick={fetchPatientBills}
-              style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e0f2f1", border: "1px solid #80cbc4", borderRadius: "6px", textAlign: "left" }}
-            >
-              💳 <strong>OPD बिलिंग व रसीद (Billing & Receipts)</strong>
-            </button>
-          )}
+          <button
+            onClick={fetchPatientBills}
+            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e0f2f1", border: "1px solid #80cbc4", borderRadius: "6px", textAlign: "left" }}
+          >
+            💳 <strong>OPD बिलिंग व रसीद (Billing & Receipts)</strong>
+          </button>
 
           <button
             onClick={fetchPatientPrescriptions}
@@ -2947,75 +2986,6 @@ export default function Home() {
             </div>
           </div>
         </div>
-      </main>
-    );
-  }
-
-  // =========================
-  // 15. INVENTORY SCREEN
-  // =========================
-  if (screen === "inventoryScreen") {
-    return (
-      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("home")}>
-          ← वापस होम
-        </button>
-        <h2>📦 औषधि भंडार व स्टॉक (Pharmacy Inventory)</h2>
-
-        <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "550px", marginBottom: "20px" }}>
-          <h3 style={{ margin: "0 0 10px 0", color: "#2e7d32" }}>➕ नया स्टॉक दर्ज करें</h3>
-          <div style={{ display: "grid", gap: "10px" }}>
-            <input
-              placeholder="औषधि का नाम (उदा. Chandraprabha Vati)"
-              value={invMedName}
-              onChange={(e) => setInvMedName(e.target.value)}
-              style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}
-            />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <select value={invCategory} onChange={(e) => setInvCategory(e.target.value)} style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}>
-                <option value="वटी / गुटिका">वटी / गुटिका</option>
-                <option value="आसव / अरिष्ट">आसव / अरिष्ट</option>
-                <option value="चूर्ण">चूर्ण</option>
-                <option value="गुग्गुलु / रस">गुग्गुलु / रस</option>
-                <option value="क्वाथ / तैल / अन्य">क्वाथ / तैल / अन्य</option>
-              </select>
-              <input
-                type="number"
-                placeholder="मात्रा (Quantity)"
-                value={invQty}
-                onChange={(e) => setInvQty(e.target.value)}
-                style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}
-              />
-            </div>
-            <button onClick={addInventoryItem} disabled={savingInv} style={{ padding: "12px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>
-              {savingInv ? "⏳ सहेजा जा रहा है..." : "➕ स्टॉक में जोड़ें"}
-            </button>
-          </div>
-        </div>
-
-        <h3 style={{ color: "#333" }}>📋 वर्तमान स्टॉक सूची ({inventoryList.length})</h3>
-        {inventoryList.length === 0 ? (
-          <p>स्टॉक में कोई दवा दर्ज नहीं है।</p>
-        ) : (
-          <div style={{ display: "grid", gap: "8px", maxWidth: "550px" }}>
-            {inventoryList.map((item, idx) => (
-              <div key={item.id || idx} style={{ background: "#fff", padding: "12px", borderRadius: "8px", border: "1px solid #ddd", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <strong style={{ fontSize: "15px" }}>{item.medicine_name}</strong>
-                  <div style={{ fontSize: "12px", color: "#666" }}>वर्ग: {item.category}</div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <span style={{ fontSize: "16px", fontWeight: "bold", color: item.stock_quantity <= 10 ? "red" : "#2e7d32" }}>
-                    {item.stock_quantity}
-                  </span>
-                  <div style={{ fontSize: "11px", color: item.stock_quantity <= 10 ? "red" : "#666" }}>
-                    {item.stock_quantity <= 10 ? "⚠️ Low Stock" : "उपलब्ध"}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </main>
     );
   }
