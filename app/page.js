@@ -185,7 +185,7 @@ export default function Home() {
   const [lastSavedFu, setLastSavedFu] = useState(null);
   const [showSendPrompt, setShowSendPrompt] = useState(false);
 
-  // Billing States
+  // Billing & Reports States
   const [consultFee, setConsultFee] = useState("200");
   const [medFee, setMedFee] = useState("0");
   const [procedureFee, setProcedureFee] = useState("0");
@@ -195,6 +195,7 @@ export default function Home() {
   const [savingBill, setSavingBill] = useState(false);
   const [billMsg, setBillMsg] = useState("");
   const [billsList, setBillsList] = useState([]);
+  const [allHospitalBills, setAllHospitalBills] = useState([]);
   const [currentBill, setCurrentBill] = useState(null);
 
   // Inventory States
@@ -212,7 +213,7 @@ export default function Home() {
   const [newDocNotes, setNewDocNotes] = useState("");
   const [savingDoc, setSavingDoc] = useState(false);
 
-  // Dashboard Stats with Financial Breakdown
+  // Dashboard Clinical Stats (Private Accounts kept separate)
   const [stats, setStats] = useState({ 
     todayCount: 0, 
     waitingCount: 0, 
@@ -338,6 +339,20 @@ export default function Home() {
       });
     } catch (e) {
       console.log(e);
+    }
+  }
+
+  async function fetchAccountsReport() {
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data, error } = await supabase.from("billings").select("*, patients(name, phone)").gte("created_at", todayStart.toISOString()).order("created_at", { ascending: false });
+      if (error) throw error;
+      setAllHospitalBills(data || []);
+      fetchStats();
+      setScreen("incomeReportScreen");
+    } catch (err) {
+      alert("आय रिपोर्ट लोड नहीं हुई: " + err.message);
     }
   }
 
@@ -1036,7 +1051,7 @@ export default function Home() {
   });
 
   // =========================
-  // 1. HOME SCREEN (FINANCIAL DASHBOARD & LIVE QUEUE)
+  // 1. HOME SCREEN (CLEAN CLINICAL DASHBOARD)
   // =========================
   if (screen === "home") {
     return (
@@ -1064,42 +1079,24 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Clinical OPD Status Counters */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", maxWidth: "480px", margin: "14px 0 8px 0" }}>
-          <div onClick={() => openPatientList("All")} style={{ background: "#e8f5e9", border: "1px solid #c8e6c9", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "11px", color: "#2e7d32", fontWeight: "bold" }}>👥 कुल OPD</div>
-            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#1b5e20", marginTop: "2px" }}>{stats.todayCount}</div>
+        {/* Clinical OPD Status Counters (Only Patients, Clean & Professional) */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", maxWidth: "480px", margin: "16px 0 16px 0" }}>
+          <div onClick={() => openPatientList("All")} style={{ background: "#e8f5e9", border: "1px solid #c8e6c9", padding: "12px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
+            <div style={{ fontSize: "12px", color: "#2e7d32", fontWeight: "bold" }}>👥 कुल OPD</div>
+            <div style={{ fontSize: "22px", fontWeight: "bold", color: "#1b5e20", marginTop: "4px" }}>{stats.todayCount}</div>
           </div>
-          <div onClick={() => openPatientList("Waiting")} style={{ background: "#fff8e1", border: "1.5px solid #ffe082", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "11px", color: "#f57f17", fontWeight: "bold" }}>⏳ Live Waiting</div>
-            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#e65100", marginTop: "2px" }}>{stats.waitingCount}</div>
+          <div onClick={() => openPatientList("Waiting")} style={{ background: "#fff8e1", border: "1.5px solid #ffe082", padding: "12px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
+            <div style={{ fontSize: "12px", color: "#f57f17", fontWeight: "bold" }}>⏳ Live Waiting</div>
+            <div style={{ fontSize: "22px", fontWeight: "bold", color: "#e65100", marginTop: "4px" }}>{stats.waitingCount}</div>
           </div>
-          <div onClick={() => openPatientList("Completed")} style={{ background: "#e0f2f1", border: "1px solid #80cbc4", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "11px", color: "#00695c", fontWeight: "bold" }}>✅ परामर्शित (Done)</div>
-            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#004d40", marginTop: "2px" }}>{stats.completedCount}</div>
-          </div>
-        </div>
-
-        {/* Live Financial Income Summary Widget (Today's Collection) */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: "8px", maxWidth: "480px", marginBottom: "14px" }}>
-          <div style={{ background: "#f1f8e9", border: "1px solid #c5e1a5", padding: "10px 6px", borderRadius: "8px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: "#33691e", fontWeight: "bold" }}>👨‍⚕️ OPD शुल्क</div>
-            <div style={{ fontSize: "17px", fontWeight: "bold", color: "#1b5e20", marginTop: "2px" }}>₹{stats.todayConsultation}</div>
-          </div>
-
-          <div onClick={fetchPharmacyQueue} style={{ background: "#f3e5f5", border: "1px solid #ce93d8", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "11px", color: "#7b1fa2", fontWeight: "bold" }}>💊 औषधि बिक्री</div>
-            <div style={{ fontSize: "17px", fontWeight: "bold", color: "#4a148c", marginTop: "2px" }}>₹{stats.todayMedicineSales}</div>
-          </div>
-
-          <div style={{ background: "#e0f7fa", border: "1.5px solid #80deea", padding: "10px 6px", borderRadius: "8px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: "#006064", fontWeight: "bold" }}>💰 कुल कलेक्शन</div>
-            <div style={{ fontSize: "18px", fontWeight: "bold", color: "#004d40", marginTop: "2px" }}>₹{stats.todayTotalCollection}</div>
+          <div onClick={() => openPatientList("Completed")} style={{ background: "#e0f2f1", border: "1px solid #80cbc4", padding: "12px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
+            <div style={{ fontSize: "12px", color: "#00695c", fontWeight: "bold" }}>✅ परामर्शित (Done)</div>
+            <div style={{ fontSize: "22px", fontWeight: "bold", color: "#004d40", marginTop: "4px" }}>{stats.completedCount}</div>
           </div>
         </div>
 
         {/* Quick Search */}
-        <div style={{ maxWidth: "480px", marginBottom: "12px" }}>
+        <div style={{ maxWidth: "480px", marginBottom: "14px" }}>
           <input
             type="text"
             placeholder="🔍 रोगी ID (उदा. TAT-1), नाम, रेफरल या मोबाइल खोजें..."
@@ -1122,10 +1119,69 @@ export default function Home() {
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("All")}>
             👤 <strong>समस्त पंजीकृत रोगी सूची</strong> (UHID Directory & Re-Queue)
           </button>
+          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #80deea", background: "#e0f7fa", fontWeight: "bold", textAlign: "left", color: "#006064" }} onClick={fetchAccountsReport}>
+            📊 <strong>दैनिक आय, बिलिंग व हिसाब (Daily Accounts & Income)</strong>
+          </button>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #81c784", background: "#f1f8e9", fontWeight: "500", textAlign: "left" }} onClick={fetchInventory}>
             📦 <strong>औषधि भंडार व स्टॉक (Pharmacy Inventory)</strong>
           </button>
         </div>
+      </main>
+    );
+  }
+
+  // =========================
+  // 1.1 DEDICATED CLINIC INCOME & ACCOUNTS REPORT SCREEN
+  // =========================
+  if (screen === "incomeReportScreen") {
+    return (
+      <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif" }}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("home")}>
+          ← वापस होम
+        </button>
+
+        <h2 style={{ margin: "0 0 12px 0", color: "#006064" }}>📊 दैनिक आय, बिलिंग व क्लिनिक हिसाब</h2>
+
+        {/* 3-Grid Financial Breakdown Card */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: "8px", maxWidth: "520px", marginBottom: "16px" }}>
+          <div style={{ background: "#fff", border: "1px solid #c5e1a5", padding: "12px 8px", borderRadius: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#33691e", fontWeight: "bold" }}>👨‍⚕️ OPD परामर्श शुल्क</div>
+            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#1b5e20", marginTop: "4px" }}>₹{stats.todayConsultation}</div>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #ce93d8", padding: "12px 8px", borderRadius: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#7b1fa2", fontWeight: "bold" }}>💊 औषधि बिक्री</div>
+            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#4a148c", marginTop: "4px" }}>₹{stats.todayMedicineSales}</div>
+          </div>
+
+          <div style={{ background: "#e0f7fa", border: "1.5px solid #80deea", padding: "12px 8px", borderRadius: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#006064", fontWeight: "bold" }}>💰 आज का कुल कलेक्शन</div>
+            <div style={{ fontSize: "22px", fontWeight: "bold", color: "#004d40", marginTop: "4px" }}>₹{stats.todayTotalCollection}</div>
+          </div>
+        </div>
+
+        <h3 style={{ color: "#333", margin: "16px 0 10px 0" }}>📜 आज की रसीदें व भुगतान विवरण ({allHospitalBills.length})</h3>
+
+        {allHospitalBills.length === 0 ? (
+          <p>आज कोई बिलिंग रिकॉर्ड दर्ज नहीं है।</p>
+        ) : (
+          <div style={{ display: "grid", gap: "10px", maxWidth: "520px" }}>
+            {allHospitalBills.map((b) => (
+              <div key={b.id} style={{ background: "#fff", padding: "12px", borderRadius: "8px", border: "1px solid #ddd" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold" }}>
+                  <span>👤 {b.patients?.name || `रोगी #${b.patient_id}`}</span>
+                  <span style={{ color: "#00796b", fontSize: "15px" }}>₹{b.total_amount}</span>
+                </div>
+                <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
+                  🕒 {formatTime(b.created_at)} | माध्यम: <strong>{b.payment_mode}</strong>
+                </div>
+                <div style={{ fontSize: "12px", color: "#555", marginTop: "4px" }}>
+                  परामर्श: ₹{b.consultation_fee || 0} | औषधि: ₹{b.medicine_fee || 0} | प्रक्रिया: ₹{b.procedure_fee || 0}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </main>
     );
   }
@@ -1759,7 +1815,7 @@ export default function Home() {
   if (screen === "patients") {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif" }}>
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("home")}>
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("home")}>
           ← वापस होम
         </button>
 
