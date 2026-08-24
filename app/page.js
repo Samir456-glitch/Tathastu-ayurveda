@@ -42,6 +42,14 @@ const COMMON_DIAGNOSIS_SUGGESTIONS = [
   "Anidra / अनिद्रा (Insomnia / Stress)"
 ];
 
+const REFERRAL_SOURCES = [
+  "Direct / स्वयं आए",
+  "पुराने रोगी (Existing Patient Reference)",
+  "Dr. Reference",
+  "Social Media / Online",
+  "स्टाफ / कैंप (Camp Reference)"
+];
+
 function formatTime(isoStr) {
   if (!isoStr) return "—";
   return new Date(isoStr).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
@@ -98,12 +106,13 @@ export default function Home() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState("");
 
-  // New patient with Vitals
+  // New patient with Vitals & Referral
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
   const [phone, setPhone] = useState("");
   const [complaint, setComplaint] = useState("");
+  const [referredBy, setReferredBy] = useState("Direct / स्वयं आए");
   const [bp, setBp] = useState("");
   const [pulseRate, setPulseRate] = useState("");
   const [weight, setWeight] = useState("");
@@ -118,6 +127,7 @@ export default function Home() {
   const [editGender, setEditGender] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editComplaint, setEditComplaint] = useState("");
+  const [editReferredBy, setEditReferredBy] = useState("");
   const [editBp, setEditBp] = useState("");
   const [editPulseRate, setEditPulseRate] = useState("");
   const [editWeight, setEditWeight] = useState("");
@@ -202,13 +212,15 @@ export default function Home() {
   const [newDocNotes, setNewDocNotes] = useState("");
   const [savingDoc, setSavingDoc] = useState(false);
 
-  // Dashboard Stats
+  // Dashboard Stats with Financial Breakdown
   const [stats, setStats] = useState({ 
     todayCount: 0, 
     waitingCount: 0, 
     completedCount: 0, 
     pharmacyPending: 0,
-    todayMedicineSales: 0 
+    todayConsultation: 0,
+    todayMedicineSales: 0,
+    todayTotalCollection: 0
   });
 
   useEffect(() => {
@@ -299,8 +311,9 @@ export default function Home() {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
 
-      const { data: todPatients } = await supabase.from("patients").select("opd_status").gte("created_at", todayStart.toISOString());
+      const { data: todPatients } = await supabase.from("patients").select("opd_status, created_at").gte("created_at", todayStart.toISOString());
       const { data: pharmacyData } = await supabase.from("prescriptions").select("pharmacy_status, medicine_bill_amount").gte("created_at", todayStart.toISOString());
+      const { data: billingData } = await supabase.from("billings").select("consultation_fee, medicine_fee, procedure_fee, total_amount").gte("created_at", todayStart.toISOString());
 
       const todList = todPatients || [];
       const waiting = todList.filter((p) => (p.opd_status || "Waiting") === "Waiting").length;
@@ -310,12 +323,18 @@ export default function Home() {
       const pharmPending = rxList.filter((r) => (r.pharmacy_status || "Pending") === "Pending").length;
       const medSales = rxList.reduce((acc, curr) => acc + (Number(curr.medicine_bill_amount) || 0), 0);
 
+      const bills = billingData || [];
+      const consultTotal = bills.reduce((acc, curr) => acc + (Number(curr.consultation_fee) || 0), 0);
+      const grandTotalCollection = bills.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0);
+
       setStats({ 
         todayCount: todList.length, 
         waitingCount: waiting, 
-        completedCount: completed,
+        completedCount: completed, 
         pharmacyPending: pharmPending,
-        todayMedicineSales: medSales
+        todayConsultation: consultTotal,
+        todayMedicineSales: medSales,
+        todayTotalCollection: grandTotalCollection || (consultTotal + medSales)
       });
     } catch (e) {
       console.log(e);
@@ -326,9 +345,9 @@ export default function Home() {
     try {
       const { data } = await supabase.from("patients").select("*").order("id", { ascending: true });
       if (!data || data.length === 0) return alert("कोई डेटा उपलब्ध नहीं है");
-      let csvContent = "data:text/csv;charset=utf-8,ID,UHID,Name,Age,Gender,Phone,Complaint,BP,Pulse,Weight,Temp,SpO2,Date,Status\n";
+      let csvContent = "data:text/csv;charset=utf-8,ID,UHID,Name,Age,Gender,Phone,Complaint,Referral,BP,Pulse,Weight,Temp,SpO2,Date,Status\n";
       data.forEach((p) => {
-        csvContent += `${p.id},TAT-${p.id},"${p.name || ""}",${p.age || ""},${p.gender || ""},"${p.phone || ""}","${(p.complaint || "").replace(/"/g, '""')}","${p.bp || ""}","${p.pulse_rate || ""}","${p.weight || ""}","${p.temperature || ""}","${p.spo2 || ""}","${formatDate(p.created_at)}",${p.opd_status || ""}\n`;
+        csvContent += `${p.id},TAT-${p.id},"${p.name || ""}",${p.age || ""},${p.gender || ""},"${p.phone || ""}","${(p.complaint || "").replace(/"/g, '""')}","${p.referred_by || ""}","${p.bp || ""}","${p.pulse_rate || ""}","${p.weight || ""}","${p.temperature || ""}","${p.spo2 || ""}","${formatDate(p.created_at)}",${p.opd_status || ""}\n`;
       });
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
@@ -357,6 +376,7 @@ export default function Home() {
         gender: gender || null,
         phone: phone.trim() || null,
         complaint: complaint.trim() || null,
+        referred_by: referredBy.trim() || "Direct / स्वयं आए",
         bp: bp.trim() || null,
         pulse_rate: pulseRate.trim() || null,
         weight: weight.trim() || null,
@@ -370,7 +390,7 @@ export default function Home() {
       const generatedId = data?.id ? `TAT-${data.id}` : "";
       const regTime = formatTime(data?.created_at || patient.created_at);
       setMessage(`✅ टोकन जारी! (UHID: ${generatedId} | समय: ${regTime})`);
-      setName(""); setAge(""); setGender(""); setPhone(""); setComplaint("");
+      setName(""); setAge(""); setGender(""); setPhone(""); setComplaint(""); setReferredBy("Direct / स्वयं आए");
       setBp(""); setPulseRate(""); setWeight(""); setTemperature(""); setSpo2("");
       fetchStats();
     } catch (error) {
@@ -380,11 +400,16 @@ export default function Home() {
     }
   }
 
-  async function updatePatientOpdStatus(pId, newStatus) {
+  // Smart Queue State Update (Waiting / Completed / No-Show / Re-Queue Today)
+  async function updatePatientOpdStatus(pId, newStatus, reQueueToday = false) {
     try {
-      await supabase.from("patients").update({ opd_status: newStatus }).eq("id", pId);
+      const updatePayload = { opd_status: newStatus };
+      if (reQueueToday) {
+        updatePayload.created_at = new Date().toISOString();
+      }
+      await supabase.from("patients").update(updatePayload).eq("id", pId);
       if (selectedPatient && selectedPatient.id === pId) {
-        setSelectedPatient({ ...selectedPatient, opd_status: newStatus });
+        setSelectedPatient({ ...selectedPatient, ...updatePayload });
       }
       fetchPatients();
       fetchStats();
@@ -400,6 +425,7 @@ export default function Home() {
     setEditGender(selectedPatient.gender || "");
     setEditPhone(selectedPatient.phone || "");
     setEditComplaint(selectedPatient.complaint || "");
+    setEditReferredBy(selectedPatient.referred_by || "Direct / स्वयं आए");
     setEditBp(selectedPatient.bp || "");
     setEditPulseRate(selectedPatient.pulse_rate || "");
     setEditWeight(selectedPatient.weight || "");
@@ -424,6 +450,7 @@ export default function Home() {
         gender: editGender || null,
         phone: editPhone.trim() || null,
         complaint: editComplaint.trim() || null,
+        referred_by: editReferredBy.trim() || "Direct / स्वयं आए",
         bp: editBp.trim() || null,
         pulse_rate: editPulseRate.trim() || null,
         weight: editWeight.trim() || null,
@@ -581,7 +608,7 @@ export default function Home() {
   }
 
   // =========================
-  // ITEMIZED & EDITABLE PHARMACY MODULE
+  // PHARMACY MODULE
   // =========================
   async function fetchPharmacyQueue() {
     try {
@@ -686,7 +713,6 @@ export default function Home() {
       }
 
       fetchStats();
-      // Directly open Printable Pharmacy Bill Slip Screen
       setScreen("printMedicineBillPreview");
     } catch (err) {
       alert("वितरण पूरा करने में त्रुटि: " + err.message);
@@ -971,6 +997,9 @@ export default function Home() {
     let text = `🌿 *${hospitalInfo.hospital_name}*\n\n`;
     text += `*रोगी ID (UHID):* TAT-${selectedPatient.id}\n`;
     text += `*रोगी:* ${selectedPatient.name} (${selectedPatient.age || "—"}y / ${selectedPatient.gender || "—"})\n`;
+    if (selectedPatient.referred_by && selectedPatient.referred_by !== "Direct / स्वयं आए") {
+      text += `*Referred By:* ${selectedPatient.referred_by}\n`;
+    }
     if (selectedPatient.bp || selectedPatient.pulse_rate || selectedPatient.weight) {
       text += `*Vitals:* BP: ${selectedPatient.bp || "—"} | Pulse: ${selectedPatient.pulse_rate || "—"} | Wt: ${selectedPatient.weight || "—"}kg\n`;
     }
@@ -997,14 +1026,17 @@ export default function Home() {
     const pPhone = (p.phone || "").toString();
     const pId = (p.id || "").toString();
     const formattedId = `tat-${pId}`;
-    const matchesSearch = pName.includes(searchText) || pPhone.includes(searchText) || pId.includes(searchText) || formattedId.includes(searchText);
+    const pRef = (p.referred_by || "").toLowerCase();
+    const matchesSearch = pName.includes(searchText) || pPhone.includes(searchText) || pId.includes(searchText) || formattedId.includes(searchText) || pRef.includes(searchText);
+    
     if (opdFilter === "Waiting") return matchesSearch && (p.opd_status || "Waiting") === "Waiting";
     if (opdFilter === "Completed") return matchesSearch && p.opd_status === "Completed";
+    if (opdFilter === "NoShow") return matchesSearch && p.opd_status === "NoShow";
     return matchesSearch;
   });
 
   // =========================
-  // 1. HOME SCREEN
+  // 1. HOME SCREEN (FINANCIAL DASHBOARD & LIVE QUEUE)
   // =========================
   if (screen === "home") {
     return (
@@ -1012,6 +1044,10 @@ export default function Home() {
         
         <datalist id="diagnosisSuggestions">
           {COMMON_DIAGNOSIS_SUGGESTIONS.map((d, i) => <option key={i} value={d} />)}
+        </datalist>
+
+        <datalist id="referralSources">
+          {REFERRAL_SOURCES.map((r, i) => <option key={i} value={r} />)}
         </datalist>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1028,31 +1064,37 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Clinical OPD Counters */}
+        {/* Clinical OPD Status Counters */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", maxWidth: "480px", margin: "14px 0 8px 0" }}>
           <div onClick={() => openPatientList("All")} style={{ background: "#e8f5e9", border: "1px solid #c8e6c9", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "12px", color: "#2e7d32", fontWeight: "bold" }}>👥 कुल OPD</div>
+            <div style={{ fontSize: "11px", color: "#2e7d32", fontWeight: "bold" }}>👥 कुल OPD</div>
             <div style={{ fontSize: "20px", fontWeight: "bold", color: "#1b5e20", marginTop: "2px" }}>{stats.todayCount}</div>
           </div>
           <div onClick={() => openPatientList("Waiting")} style={{ background: "#fff8e1", border: "1.5px solid #ffe082", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "12px", color: "#f57f17", fontWeight: "bold" }}>⏳ OPD Waiting</div>
+            <div style={{ fontSize: "11px", color: "#f57f17", fontWeight: "bold" }}>⏳ Live Waiting</div>
             <div style={{ fontSize: "20px", fontWeight: "bold", color: "#e65100", marginTop: "2px" }}>{stats.waitingCount}</div>
           </div>
           <div onClick={() => openPatientList("Completed")} style={{ background: "#e0f2f1", border: "1px solid #80cbc4", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "12px", color: "#00695c", fontWeight: "bold" }}>✅ परामर्शित (Done)</div>
+            <div style={{ fontSize: "11px", color: "#00695c", fontWeight: "bold" }}>✅ परामर्शित (Done)</div>
             <div style={{ fontSize: "20px", fontWeight: "bold", color: "#004d40", marginTop: "2px" }}>{stats.completedCount}</div>
           </div>
         </div>
 
-        {/* Pharmacy Widgets */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", maxWidth: "480px", marginBottom: "14px" }}>
-          <div onClick={fetchPharmacyQueue} style={{ background: "#f3e5f5", border: "1.5px solid #ce93d8", padding: "10px 8px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "12px", color: "#7b1fa2", fontWeight: "bold" }}>💊 फार्मेसी कतार (Pending)</div>
-            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#4a148c", marginTop: "2px" }}>{stats.pharmacyPending}</div>
+        {/* Live Financial Income Summary Widget (Today's Collection) */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: "8px", maxWidth: "480px", marginBottom: "14px" }}>
+          <div style={{ background: "#f1f8e9", border: "1px solid #c5e1a5", padding: "10px 6px", borderRadius: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#33691e", fontWeight: "bold" }}>👨‍⚕️ OPD शुल्क</div>
+            <div style={{ fontSize: "17px", fontWeight: "bold", color: "#1b5e20", marginTop: "2px" }}>₹{stats.todayConsultation}</div>
           </div>
-          <div style={{ background: "#e8eaf6", border: "1px solid #c5cae9", padding: "10px 8px", borderRadius: "8px", textAlign: "center" }}>
-            <div style={{ fontSize: "12px", color: "#283593", fontWeight: "bold" }}>💰 आज की औषधि बिक्री</div>
-            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#1a237e", marginTop: "2px" }}>₹{stats.todayMedicineSales}</div>
+
+          <div onClick={fetchPharmacyQueue} style={{ background: "#f3e5f5", border: "1px solid #ce93d8", padding: "10px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
+            <div style={{ fontSize: "11px", color: "#7b1fa2", fontWeight: "bold" }}>💊 औषधि बिक्री</div>
+            <div style={{ fontSize: "17px", fontWeight: "bold", color: "#4a148c", marginTop: "2px" }}>₹{stats.todayMedicineSales}</div>
+          </div>
+
+          <div style={{ background: "#e0f7fa", border: "1.5px solid #80deea", padding: "10px 6px", borderRadius: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#006064", fontWeight: "bold" }}>💰 कुल कलेक्शन</div>
+            <div style={{ fontSize: "18px", fontWeight: "bold", color: "#004d40", marginTop: "2px" }}>₹{stats.todayTotalCollection}</div>
           </div>
         </div>
 
@@ -1060,7 +1102,7 @@ export default function Home() {
         <div style={{ maxWidth: "480px", marginBottom: "12px" }}>
           <input
             type="text"
-            placeholder="🔍 रोगी ID (उदा. TAT-1), नाम या मोबाइल खोजें..."
+            placeholder="🔍 रोगी ID (उदा. TAT-1), नाम, रेफरल या मोबाइल खोजें..."
             onFocus={() => openPatientList("All")}
             style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1.5px solid #2e7d32", boxSizing: "border-box", background: "#fff", fontSize: "14px" }}
           />
@@ -1069,7 +1111,7 @@ export default function Home() {
         {/* Action Grid */}
         <div style={{ display: "grid", gap: "10px", maxWidth: "480px" }}>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => setScreen("newPatient")}>
-            ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry & Vitals)
+            ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry, Vitals & Referral)
           </button>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ba68c8", background: "#f3e5f5", fontWeight: "bold", textAlign: "left", color: "#4a148c" }} onClick={fetchPharmacyQueue}>
             💊 <strong>मेडिकल स्टोर काउंटर (Pharmacy Rx Dispense & Bill)</strong>
@@ -1078,7 +1120,7 @@ export default function Home() {
             ⏳ <strong>लाइव OPD कतार (Waiting Room - {stats.waitingCount})</strong>
           </button>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("All")}>
-            👤 <strong>समस्त पंजीकृत रोगी सूची</strong> (UHID Directory)
+            👤 <strong>समस्त पंजीकृत रोगी सूची</strong> (UHID Directory & Re-Queue)
           </button>
           <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #81c784", background: "#f1f8e9", fontWeight: "500", textAlign: "left" }} onClick={fetchInventory}>
             📦 <strong>औषधि भंडार व स्टॉक (Pharmacy Inventory)</strong>
@@ -1577,7 +1619,7 @@ export default function Home() {
   }
 
   // =========================
-  // 5. NEW PATIENT SCREEN
+  // 5. NEW PATIENT SCREEN (WITH REFERRAL & VITALS)
   // =========================
   if (screen === "newPatient") {
     return (
@@ -1601,6 +1643,20 @@ export default function Home() {
 
           <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="मोबाइल नंबर (WhatsApp)" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
           
+          {/* Referral Source Input */}
+          <div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", color: "#2e7d32", marginBottom: "4px" }}>
+              🤝 किसके संदर्भ से आए (Referred By):
+            </label>
+            <input
+              list="referralSources"
+              style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }}
+              placeholder="उदा. Direct, पुराने रोगी, डॉ. शर्मा..."
+              value={referredBy}
+              onChange={(e) => setReferredBy(e.target.value)}
+            />
+          </div>
+
           <div style={{ background: "#fff", padding: "12px", borderRadius: "8px", border: "1px solid #c8e6c9" }}>
             <div style={{ fontSize: "13px", fontWeight: "bold", color: "#2e7d32", marginBottom: "8px" }}>🩺 रोगी वाइटल्स (Vitals Record):</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
@@ -1666,6 +1722,11 @@ export default function Home() {
             <input style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
           </div>
 
+          <div>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", color: "#2e7d32", marginBottom: "4px" }}>रेफरल (Referred By):</label>
+            <input list="referralSources" style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #ccc", boxSizing: "border-box" }} value={editReferredBy} onChange={(e) => setEditReferredBy(e.target.value)} />
+          </div>
+
           <div style={{ background: "#fff", padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", color: "#2e7d32", marginBottom: "6px" }}>वाइटल्स (Vitals):</label>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "6px" }}>
@@ -1693,7 +1754,7 @@ export default function Home() {
   }
 
   // =========================
-  // 7. PATIENT LIST SCREEN
+  // 7. PATIENT LIST SCREEN (WITH NO-SHOW & RE-QUEUE ACTIONS)
   // =========================
   if (screen === "patients") {
     return (
@@ -1707,34 +1768,41 @@ export default function Home() {
           <span style={{ fontSize: "13px", fontWeight: "bold", color: "#2e7d32" }}>फ़िल्टर: {opdFilter}</span>
         </div>
 
-        <div style={{ display: "flex", gap: "6px", marginBottom: "14px", maxWidth: "500px" }}>
+        {/* Filter Pills with No-Show */}
+        <div style={{ display: "flex", gap: "6px", marginBottom: "14px", maxWidth: "520px" }}>
           <button
             onClick={() => setOpdFilter("All")}
-            style={{ flex: 1, padding: "8px", borderRadius: "6px", border: "1px solid #ccc", background: opdFilter === "All" ? "#2e7d32" : "#fff", color: opdFilter === "All" ? "#fff" : "#333", fontWeight: "bold", cursor: "pointer", fontSize: "12px" }}
+            style={{ flex: 1, padding: "8px", borderRadius: "6px", border: "1px solid #ccc", background: opdFilter === "All" ? "#2e7d32" : "#fff", color: opdFilter === "All" ? "#fff" : "#333", fontWeight: "bold", cursor: "pointer", fontSize: "11px" }}
           >
             सभी (All)
           </button>
           <button
             onClick={() => setOpdFilter("Waiting")}
-            style={{ flex: 1, padding: "8px", borderRadius: "6px", border: "1px solid #ffe082", background: opdFilter === "Waiting" ? "#f57f17" : "#fff8e1", color: opdFilter === "Waiting" ? "#fff" : "#e65100", fontWeight: "bold", cursor: "pointer", fontSize: "12px" }}
+            style={{ flex: 1.2, padding: "8px", borderRadius: "6px", border: "1px solid #ffe082", background: opdFilter === "Waiting" ? "#f57f17" : "#fff8e1", color: opdFilter === "Waiting" ? "#fff" : "#e65100", fontWeight: "bold", cursor: "pointer", fontSize: "11px" }}
           >
             ⏳ प्रतीक्षारत (Waiting)
           </button>
           <button
             onClick={() => setOpdFilter("Completed")}
-            style={{ flex: 1, padding: "8px", borderRadius: "6px", border: "1px solid #80cbc4", background: opdFilter === "Completed" ? "#00695c" : "#e0f2f1", color: opdFilter === "Completed" ? "#fff" : "#004d40", fontWeight: "bold", cursor: "pointer", fontSize: "12px" }}
+            style={{ flex: 1.2, padding: "8px", borderRadius: "6px", border: "1px solid #80cbc4", background: opdFilter === "Completed" ? "#00695c" : "#e0f2f1", color: opdFilter === "Completed" ? "#fff" : "#004d40", fontWeight: "bold", cursor: "pointer", fontSize: "11px" }}
           >
             ✅ परामर्शित (Done)
+          </button>
+          <button
+            onClick={() => setOpdFilter("NoShow")}
+            style={{ flex: 1.2, padding: "8px", borderRadius: "6px", border: "1px solid #ef9a9a", background: opdFilter === "NoShow" ? "#d32f2f" : "#ffebee", color: opdFilter === "NoShow" ? "#fff" : "#c62828", fontWeight: "bold", cursor: "pointer", fontSize: "11px" }}
+          >
+            ❌ अनुपस्थित (No-Show)
           </button>
         </div>
 
         <input
           type="text"
-          placeholder="🔎 रोगी ID (उदा. TAT-1), नाम या मोबाइल से खोजें..."
+          placeholder="🔎 रोगी ID (उदा. TAT-1), नाम, रेफरल या मोबाइल से खोजें..."
           value={search}
           autoFocus
           onChange={(e) => setSearch(e.target.value)}
-          style={{ width: "100%", maxWidth: "500px", padding: "12px", marginBottom: "16px", boxSizing: "border-box", borderRadius: "8px", border: "2px solid #2e7d32", fontSize: "14px" }}
+          style={{ width: "100%", maxWidth: "520px", padding: "12px", marginBottom: "16px", boxSizing: "border-box", borderRadius: "8px", border: "2px solid #2e7d32", fontSize: "14px" }}
         />
 
         {loadingPatients ? (
@@ -1742,32 +1810,78 @@ export default function Home() {
         ) : filteredPatients.length === 0 ? (
           <p>कोई रोगी नहीं मिला।</p>
         ) : (
-          <div style={{ display: "grid", gap: "10px", maxWidth: "500px" }}>
+          <div style={{ display: "grid", gap: "10px", maxWidth: "520px" }}>
             {filteredPatients.map((p) => {
-              const isWaiting = (p.opd_status || "Waiting") === "Waiting";
+              const status = p.opd_status || "Waiting";
+              const isWaiting = status === "Waiting";
+              const isNoShow = status === "NoShow";
+
               return (
                 <div
                   key={p.id}
-                  onClick={() => { setSelectedPatient(p); setScreen("profile"); }}
-                  style={{ padding: "14px", background: "#fff", border: isWaiting ? "1.5px solid #ffe082" : "1px solid #ddd", borderRadius: "10px", cursor: "pointer" }}
+                  style={{ padding: "14px", background: "#fff", border: isWaiting ? "1.5px solid #ffe082" : isNoShow ? "1px solid #ef9a9a" : "1px solid #ddd", borderRadius: "10px" }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontWeight: "bold", fontSize: "16px", color: "#222" }}>👤 {p.name}</div>
+                    <div onClick={() => { setSelectedPatient(p); setScreen("profile"); }} style={{ fontWeight: "bold", fontSize: "16px", color: "#222", cursor: "pointer" }}>
+                      👤 {p.name}
+                    </div>
                     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                      <span style={{ background: isWaiting ? "#fff8e1" : "#e8f5e9", color: isWaiting ? "#e65100" : "#2e7d32", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
-                        {isWaiting ? "⏳ Waiting" : "✅ Done"}
+                      <span style={{ background: isWaiting ? "#fff8e1" : isNoShow ? "#ffebee" : "#e8f5e9", color: isWaiting ? "#e65100" : isNoShow ? "#c62828" : "#2e7d32", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
+                        {isWaiting ? "⏳ Waiting" : isNoShow ? "❌ No-Show" : "✅ Done"}
                       </span>
                       <span style={{ background: "#2e7d32", color: "#fff", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
                         TAT-{p.id}
                       </span>
                     </div>
                   </div>
-                  <div style={{ fontSize: "13px", color: "#666", marginTop: "4px" }}>
+
+                  <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
                     🕒 टोकन समय: {formatDate(p.created_at)} ({formatTime(p.created_at)})
                   </div>
-                  <div style={{ fontSize: "14px", color: "#555", marginTop: "2px" }}>आयु: {p.age || "—"} | {p.gender || "—"} | 📱 {p.phone || "—"}</div>
-                  {p.bp && <div style={{ fontSize: "12px", color: "#00796b", marginTop: "2px" }}>🩺 BP: {p.bp} | Pulse: {p.pulse_rate || "—"} | Wt: {p.weight || "—"}kg</div>}
-                  <div style={{ fontSize: "13px", color: "#333", marginTop: "4px" }}>📋 {p.complaint || "कोई शिकायत नहीं"}</div>
+                  
+                  <div style={{ fontSize: "13px", color: "#555", marginTop: "2px" }}>
+                    आयु: {p.age || "—"} | {p.gender || "—"} | 📱 {p.phone || "—"}
+                  </div>
+
+                  {p.referred_by && p.referred_by !== "Direct / स्वयं आए" && (
+                    <div style={{ fontSize: "12px", color: "#00796b", marginTop: "2px" }}>
+                      🤝 <strong>रेफरल:</strong> {p.referred_by}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: "13px", color: "#333", marginTop: "4px" }}>
+                    📋 {p.complaint || "कोई शिकायत नहीं"}
+                  </div>
+
+                  {/* Quick Smart Queue Actions */}
+                  <div style={{ display: "flex", gap: "6px", marginTop: "10px", paddingTop: "8px", borderTop: "1px dashed #eee" }}>
+                    <button
+                      onClick={() => { setSelectedPatient(p); setScreen("profile"); }}
+                      style={{ flex: 1, padding: "6px", background: "#e8f5e9", color: "#2e7d32", border: "1px solid #c8e6c9", borderRadius: "4px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}
+                    >
+                      👁️ प्रोफाइल खोलें
+                    </button>
+
+                    {isWaiting && (
+                      <button
+                        onClick={() => updatePatientOpdStatus(p.id, "NoShow")}
+                        style={{ padding: "6px 10px", background: "#ffebee", color: "#c62828", border: "1px solid #ffcdd2", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
+                        title="रोगी नहीं आया / कतार से हटाएं"
+                      >
+                        ❌ No-Show
+                      </button>
+                    )}
+
+                    {!isWaiting && (
+                      <button
+                        onClick={() => updatePatientOpdStatus(p.id, "Waiting", true)}
+                        style={{ padding: "6px 10px", background: "#fff8e1", color: "#e65100", border: "1px solid #ffe082", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
+                        title="आज की live कतार में पुनः जोड़ें"
+                      >
+                        🔄 Re-Queue (आज जोड़ें)
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -1782,7 +1896,9 @@ export default function Home() {
   // =========================
   if (screen === "profile" && selectedPatient) {
     const p = selectedPatient;
-    const isWaiting = (p.opd_status || "Waiting") === "Waiting";
+    const status = p.opd_status || "Waiting";
+    const isWaiting = status === "Waiting";
+    const isNoShow = status === "NoShow";
 
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
@@ -1799,14 +1915,25 @@ export default function Home() {
             </span>
           </div>
 
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: isWaiting ? "#fff8e1" : "#e8f5e9", padding: "8px 10px", borderRadius: "6px", margin: "10px 0", fontSize: "13px" }}>
-            <span><strong>स्थिति:</strong> {isWaiting ? "⏳ प्रतीक्षारत (In Queue)" : "✅ परामर्श पूर्ण"}</span>
-            <button
-              onClick={() => updatePatientOpdStatus(p.id, isWaiting ? "Completed" : "Waiting")}
-              style={{ padding: "4px 8px", background: "#fff", border: "1px solid #ccc", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontWeight: "bold" }}
-            >
-              {isWaiting ? "Mark as Done" : "Mark as Waiting"}
-            </button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: isWaiting ? "#fff8e1" : isNoShow ? "#ffebee" : "#e8f5e9", padding: "8px 10px", borderRadius: "6px", margin: "10px 0", fontSize: "13px" }}>
+            <span><strong>स्थिति:</strong> {isWaiting ? "⏳ प्रतीक्षारत (In Queue)" : isNoShow ? "❌ अनुपस्थित (No-Show)" : "✅ परामर्श पूर्ण"}</span>
+            <div style={{ display: "flex", gap: "4px" }}>
+              {isWaiting ? (
+                <button
+                  onClick={() => updatePatientOpdStatus(p.id, "NoShow")}
+                  style={{ padding: "4px 8px", background: "#fff", border: "1px solid #c62828", color: "#c62828", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontWeight: "bold" }}
+                >
+                  Mark No-Show
+                </button>
+              ) : (
+                <button
+                  onClick={() => updatePatientOpdStatus(p.id, "Waiting", true)}
+                  style={{ padding: "4px 8px", background: "#fff", border: "1px solid #e65100", color: "#e65100", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontWeight: "bold" }}
+                >
+                  🔄 Re-Queue
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", background: "#e8f5e9", padding: "8px", borderRadius: "6px", margin: "10px 0", textAlign: "center", fontSize: "12px" }}>
@@ -1815,11 +1942,12 @@ export default function Home() {
             <div><strong>Weight:</strong> {p.weight ? `${p.weight} kg` : "—"}</div>
             <div><strong>Temp:</strong> {p.temperature ? `${p.temperature} °F` : "—"}</div>
             <div><strong>SpO2:</strong> {p.spo2 ? `${p.spo2} %` : "—"}</div>
-            <div><strong>Status:</strong> {p.opd_status || "Active"}</div>
+            <div><strong>Referral:</strong> {p.referred_by || "Direct"}</div>
           </div>
 
           <p style={{ margin: "6px 0" }}><strong>आयु:</strong> {p.age || "—"} | <strong>लिंग:</strong> {p.gender || "—"}</p>
           <p style={{ margin: "6px 0" }}><strong>मोबाइल:</strong> {p.phone || "—"}</p>
+          <p style={{ margin: "6px 0" }}><strong>रेफरल स्रोत:</strong> {p.referred_by || "Direct / स्वयं आए"}</p>
           <p style={{ margin: "6px 0" }}><strong>मुख्य शिकायत:</strong><br />{p.complaint || "—"}</p>
 
           <button
@@ -2694,6 +2822,9 @@ export default function Home() {
             <div>
               <strong>रोगी:</strong> {selectedPatient.name}<br />
               <span style={{ color: "#2e7d32", fontWeight: "bold" }}>UHID: TAT-{selectedPatient.id}</span>
+              {selectedPatient.referred_by && selectedPatient.referred_by !== "Direct / स्वयं आए" && (
+                <div style={{ color: "#00796b" }}><strong>Ref:</strong> {selectedPatient.referred_by}</div>
+              )}
             </div>
             <div>
               <strong>आयु/लिंग:</strong> {selectedPatient.age || "—"}y / {selectedPatient.gender || "—"}<br />
