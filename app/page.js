@@ -99,10 +99,12 @@ export default function Home() {
   const [doctorSuggestions, setDoctorSuggestions] = useState(DEFAULT_DOCTOR_SUGGESTIONS);
   const [medicineCategories, setMedicineCategories] = useState(DEFAULT_CATEGORIES);
 
+  // Master Management State
   const [masterType, setMasterType] = useState("doctor");
   const [newMasterVal, setNewMasterVal] = useState("");
   const [newMasterCategory, setNewMasterCategory] = useState("वटी / गुटिका");
 
+  // Hospital Settings State
   const [hospitalInfo, setHospitalInfo] = useState({
     hospital_name: "तथास्तु आयुर्वेद क्लिनिक व अनुसंधान केंद्र",
     tagline: "विशेष आयुर्वेद चिकित्सा, पंचकर्म एवं परामर्श केंद्र",
@@ -115,7 +117,7 @@ export default function Home() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState("");
 
-  // New Patient Form
+  // New Patient State
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
@@ -130,7 +132,7 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
-  // Edit Patient
+  // Edit Patient State
   const [editName, setEditName] = useState("");
   const [editAge, setEditAge] = useState("");
   const [editGender, setEditGender] = useState("");
@@ -221,7 +223,7 @@ export default function Home() {
     onlineTotal: 0
   });
 
-  // Inventory
+  // Enhanced Inventory & Bulk CSV
   const [inventoryList, setInventoryList] = useState([]);
   const [invSearch, setInvSearch] = useState("");
   const [invMedName, setInvMedName] = useState("");
@@ -231,6 +233,7 @@ export default function Home() {
   const [invUnit, setInvUnit] = useState("डब्बी (Jar/Box)");
   const [invPrice, setInvPrice] = useState("");
   const [savingInv, setSavingInv] = useState(false);
+  const [uploadingBulk, setUploadingBulk] = useState(false);
   const [lowStockCount, setLowStockCount] = useState(0);
 
   // Patient Documents
@@ -329,7 +332,7 @@ export default function Home() {
       }]);
       setNewMasterVal("");
       loadMasterPresets();
-      alert("✅ नया विकल्प जुड़ गया!");
+      alert("✅ नया विकल्प सफलतापूर्वक जुड़ गया!");
     } catch (e) {
       alert("त्रुटि: " + e.message);
     }
@@ -421,6 +424,98 @@ export default function Home() {
     } finally {
       setReportLoading(false);
     }
+  }
+
+  async function exportPatientsCSV() {
+    try {
+      const { data } = await supabase.from("patients").select("*").order("id", { ascending: true });
+      if (!data || data.length === 0) return alert("कोई डेटा उपलब्ध नहीं है");
+      let csvContent = "data:text/csv;charset=utf-8,ID,UHID,Name,Age,Gender,Phone,Complaint,Referral,BP,Pulse,Weight,Temp,SpO2,Date,Status\n";
+      data.forEach((p) => {
+        csvContent += `${p.id},TAT-${p.id},"${p.name || ""}",${p.age || ""},${p.gender || ""},"${p.phone || ""}","${(p.complaint || "").replace(/"/g, '""')}","${p.referred_by || ""}","${p.bp || ""}","${p.pulse_rate || ""}","${p.weight || ""}","${p.temperature || ""}","${p.spo2 || ""}","${formatDate(p.created_at)}",${p.opd_status || ""}\n`;
+      });
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `Tathastu_OPD_Backup_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (e) {
+      alert("बैकअप डाउनलोड में त्रुटि: " + e.message);
+    }
+  }
+
+  // Sample CSV Template Download for Pharmacy
+  function downloadSampleMedicineCSV() {
+    const csvHeader = "medicine_name,brand,category,stock_quantity,unit,price\n";
+    const sampleRows = [
+      "Chandraprabha Vati,Baidyanath,वटी / गुटिका,50,डब्बी (Jar/Box),120",
+      "Arogyavardhini Vati,Dabur,वटी / गुटिका,40,डब्बी (Jar/Box),110",
+      "Triphala Churna,Patanjali,चूर्ण,30,पैकेट (Pkt),60",
+      "Dashmularishta,Baidyanath,आसव / अरिष्ट,25,बोतल (Bottle),180",
+      "Gokshuradi Guggulu,Dhootapapeshwar,गुग्गुलु / रस / भस्म,20,डब्बी (Jar/Box),190"
+    ].join("\n");
+
+    const blob = new Blob([csvHeader + sampleRows], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", "Tathastu_Medicine_Stock_Template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  // Bulk CSV File Upload for Pharmacy
+  async function handleBulkMedicineUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingBulk(true);
+    const reader = new FileReader();
+
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result;
+        if (!text) throw new Error("फ़ाइल खाली है");
+
+        const lines = text.split(/\r\n|\n/).filter(line => line.trim().length > 0);
+        if (lines.length <= 1) throw new Error("फ़ाइल में कोई डेटा पंक्ति नहीं मिली");
+
+        const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+        const parsedItems = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(",").map(c => c.trim().replace(/^"|"$/g, ''));
+          if (cols.length >= 2 && cols[0]) {
+            parsedItems.push({
+              medicine_name: cols[0],
+              brand: cols[1] || "Baidyanath",
+              category: cols[2] || "वटी / गुटिका",
+              stock_quantity: Number(cols[3]) || 10,
+              unit: cols[4] || "डब्बी (Jar/Box)",
+              price: Number(cols[5]) || 0,
+              min_alert_limit: 10
+            });
+          }
+        }
+
+        if (parsedItems.length === 0) throw new Error("कोई मान्य दवा पंक्ति नहीं मिली");
+
+        const { error } = await supabase.from("inventory").insert(parsedItems);
+        if (error) throw error;
+
+        alert(`✅ सफलतापूर्वक ${parsedItems.length} दवाइयाँ स्टॉक में जुड़ गईं!`);
+        fetchInventory();
+      } catch (err) {
+        alert("अपलोड में त्रुटि: " + err.message);
+      } finally {
+        setUploadingBulk(false);
+        e.target.value = "";
+      }
+    };
+
+    reader.readAsText(file);
   }
 
   async function savePatient() {
@@ -776,7 +871,6 @@ export default function Home() {
         dispensed_at: new Date().toISOString()
       }).eq("id", dispenseRx.id);
 
-      // Auto Deduct Stock
       for (const item of dispenseItems) {
         if (item.name && item.name.trim()) {
           const { data: invMatches } = await supabase.from("inventory").select("*").ilike("medicine_name", `%${item.name.trim()}%`);
@@ -1135,7 +1229,7 @@ export default function Home() {
     window.open(url, "_blank");
   }
 
-  // Global Datalists Component
+  // Global Datalists
   const GlobalDatalists = () => (
     <>
       <datalist id="diagnosisSuggestions">
@@ -1618,7 +1712,7 @@ export default function Home() {
     );
   }
 
-  // 5. INVENTORY SCREEN
+  // 5. INVENTORY SCREEN (WITH BULK CSV EXCEL UPLOADER)
   if (screen === "inventoryScreen") {
     const filteredInv = inventoryList.filter(item => 
       (item.medicine_name || "").toLowerCase().includes(invSearch.toLowerCase()) ||
@@ -1642,8 +1736,35 @@ export default function Home() {
           )}
         </div>
 
-        <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1.5px solid #81c784", maxWidth: "600px", marginBottom: "20px" }}>
-          <h3 style={{ margin: "0 0 12px 0", color: "#2e7d32" }}>➕ नया स्टॉक जोड़ें / अपडेट करें</h3>
+        {/* Excel / CSV Bulk Uploader Card */}
+        <div style={{ background: "#e8f5e9", padding: "14px", borderRadius: "10px", border: "1.5px solid #81c784", maxWidth: "600px", marginBottom: "16px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <span style={{ fontWeight: "bold", color: "#2e7d32", fontSize: "13px" }}>⚡ एक्सेल / CSV से बल्क स्टॉक अपलोड (1-Click Bulk Entry)</span>
+            <button
+              onClick={downloadSampleMedicineCSV}
+              style={{ padding: "5px 10px", background: "#fff", border: "1px solid #2e7d32", color: "#2e7d32", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
+            >
+              📥 Sample Sheet
+            </button>
+          </div>
+          
+          <p style={{ margin: "0 0 10px 0", fontSize: "11px", color: "#555" }}>
+            Excel या CSV फ़ाइल से 100-200 दवाइयाँ एक साथ अपलोड करें:
+          </p>
+
+          <input
+            type="file"
+            accept=".csv, .txt"
+            onChange={handleBulkMedicineUpload}
+            disabled={uploadingBulk}
+            style={{ fontSize: "12px", background: "#fff", padding: "6px", borderRadius: "4px", border: "1px solid #ccc", width: "100%", boxSizing: "border-box" }}
+          />
+          {uploadingBulk && <div style={{ fontSize: "12px", color: "#2e7d32", fontWeight: "bold", marginTop: "6px" }}>⏳ स्टॉक अपलोड व प्रोसेस हो रहा है...</div>}
+        </div>
+
+        {/* 1-by-1 Entry Card */}
+        <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "600px", marginBottom: "20px" }}>
+          <h3 style={{ margin: "0 0 12px 0", color: "#333", fontSize: "15px" }}>➕ मैन्युअल दवा जोड़ें / अपडेट करें</h3>
           <div style={{ display: "grid", gap: "10px" }}>
             <input
               placeholder="दवा का नाम (उदा. Chandraprabha Vati)..."
@@ -1690,7 +1811,7 @@ export default function Home() {
               </select>
               <input
                 type="number"
-                placeholder="प्रति दर ₹"
+                placeholder="दर ₹"
                 value={invPrice}
                 onChange={(e) => setInvPrice(e.target.value)}
                 style={{ padding: "9px", borderRadius: "6px", border: "1px solid #ccc" }}
@@ -2626,7 +2747,7 @@ export default function Home() {
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
         <GlobalDatalists />
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("profile")}>
-          ← रोगी प्रोफाइल
+          ← वापस प्रोफाइल
         </button>
         <h2>📜 सहेजे गए पर्चे ({selectedPatient.name} - TAT-{selectedPatient.id})</h2>
 
@@ -2837,8 +2958,23 @@ export default function Home() {
     );
   }
 
-  // 19. MASTER SETTINGS SCREEN
+  // 19. MASTER SETTINGS SCREEN (COMPLETE & RESTORED)
   if (screen === "settingsScreen") {
+    const getPlaceholderText = () => {
+      switch (masterType) {
+        case "doctor":
+          return "डॉक्टर का नाम (उदा. Dr. Anshuman Mishra, BAMS)...";
+        case "anupana":
+          return "अनुपान का नाम (उदा. गोदुग्ध / अश्वगंधा क्वाथ)...";
+        case "dose":
+          return "मात्रा विवरण (उदा. 2 चम्मच दिन में दो बार)...";
+        case "investigation":
+          return "जाँच का नाम (उदा. Serum Creatinine / HbA1c)...";
+        default:
+          return "औषधि का नाम (उदा. गिलोय चूर्ण / गोखरू क्वाथ)...";
+      }
+    };
+
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
         <GlobalDatalists />
@@ -2847,6 +2983,57 @@ export default function Home() {
         </button>
         <h2>⚙️ मास्टर सेटिंग्स व क्लिनिकल कंट्रोल</h2>
 
+        {/* Card 1: Master Data Presets Manager */}
+        <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1.5px solid #81c784", maxWidth: "520px", marginBottom: "20px" }}>
+          <h3 style={{ margin: "0 0 12px 0", color: "#2e7d32" }}>🌿 मास्टर डेटा एवं सूची प्रबंधन</h3>
+
+          <div style={{ display: "grid", gap: "10px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <select
+                value={masterType}
+                onChange={(e) => setMasterType(e.target.value)}
+                style={{ padding: "9px", borderRadius: "4px", border: "1px solid #ccc", background: "#fff", fontWeight: "bold" }}
+              >
+                <option value="doctor">👨‍⚕️ नया ड्यूटी डॉक्टर</option>
+                <option value="medicine">💊 नई औषधि (Medicine)</option>
+                <option value="anupana">🥛 नया अनुपान (Anupana)</option>
+                <option value="dose">⚖️ नई मात्रा (Dose)</option>
+                <option value="investigation">🔬 नया टेस्ट (Lab Test)</option>
+              </select>
+
+              {masterType === "medicine" ? (
+                <select
+                  value={newMasterCategory}
+                  onChange={(e) => setNewMasterCategory(e.target.value)}
+                  style={{ padding: "9px", borderRadius: "4px", border: "1px solid #ccc", background: "#fff" }}
+                >
+                  <option value="वटी / गुटिका">वटी / गुटिका</option>
+                  <option value="आसव / अरिष्ट">आसव / अरिष्ट</option>
+                  <option value="चूर्ण">चूर्ण</option>
+                  <option value="गुग्गुलु / रस / भस्म">गुग्गुलु / रस / भस्म</option>
+                  <option value="क्वाथ / तैल / अन्य">क्वाथ / तैल / अन्य</option>
+                </select>
+              ) : (
+                <div style={{ fontSize: "12px", color: "#666", alignSelf: "center", background: "#f5f5f5", padding: "8px", borderRadius: "4px", textAlign: "center" }}>
+                  {masterType === "doctor" ? "चिकित्सक पैनल" : "सामान्य सूची"}
+                </div>
+              )}
+            </div>
+
+            <input
+              placeholder={getPlaceholderText()}
+              value={newMasterVal}
+              onChange={(e) => setNewMasterVal(e.target.value)}
+              style={{ width: "100%", padding: "10px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box", fontSize: "13px" }}
+            />
+
+            <button onClick={addMasterPreset} style={{ padding: "11px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "14px" }}>
+              ➕ सूची में जोड़ें
+            </button>
+          </div>
+        </div>
+
+        {/* Card 2: Letterhead & Hospital Info */}
         <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "520px", marginBottom: "20px" }}>
           <h3 style={{ margin: "0 0 12px 0", color: "#333" }}>🏥 हॉस्पिटल व लेटरहेड विवरण</h3>
           <div style={{ marginBottom: "10px" }}>
@@ -2882,6 +3069,15 @@ export default function Home() {
             {savingSettings ? "⏳ सहेजा जा रहा है..." : "💾 लेटरहेड अपडेट करें"}
           </button>
           {settingsMsg && <div style={{ marginTop: "8px", fontWeight: "bold", color: "#2e7d32" }}>{settingsMsg}</div>}
+        </div>
+
+        {/* Card 3: Patient Records Excel / CSV Download */}
+        <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "520px" }}>
+          <h3 style={{ margin: "0 0 6px 0", color: "#333" }}>📥 ऑफलाइन डेटा बैकअप (Excel / CSV)</h3>
+          <p style={{ fontSize: "12px", color: "#666", margin: "0 0 10px 0" }}>अपने क्लिनिक के समस्त रोगियों का रिकॉर्ड डाउनलोड करें:</p>
+          <button onClick={exportPatientsCSV} style={{ width: "100%", padding: "10px", background: "#00796b", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>
+            📥 सम्पूर्ण रोगी डेटा (CSV) डाउनलोड करें
+          </button>
         </div>
       </main>
     );
