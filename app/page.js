@@ -50,6 +50,14 @@ const REFERRAL_SOURCES = [
   "स्टाफ / कैंप (Camp Reference)"
 ];
 
+// Role PINs
+const PINS = {
+  admin: "1234",
+  doctor: "1111",
+  reception: "2222",
+  pharmacy: "3333"
+};
+
 function formatTime(isoStr) {
   if (!isoStr) return "—";
   return new Date(isoStr).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
@@ -74,6 +82,12 @@ function AssessmentInput({ label, value, onChange, textarea = false, list = null
 }
 
 export default function Home() {
+  // Role Access State
+  const [currentRole, setCurrentRole] = useState(null); // 'admin' | 'doctor' | 'reception' | 'pharmacy'
+  const [enteredPin, setEnteredPin] = useState("");
+  const [selectedRoleToLogin, setSelectedRoleToLogin] = useState("admin");
+  const [loginError, setLoginError] = useState("");
+
   const [screen, setScreen] = useState("home");
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
@@ -161,7 +175,7 @@ export default function Home() {
   const [currentPrescription, setCurrentPrescription] = useState(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
-  // Pharmacy Queue & Dispensing States (Itemized, Editable & Deletable)
+  // Pharmacy Queue & Dispensing States
   const [pharmacyQueue, setPharmacyQueue] = useState([]);
   const [pharmacySearch, setPharmacySearch] = useState("");
   const [dispenseRx, setDispenseRx] = useState(null);
@@ -185,7 +199,7 @@ export default function Home() {
   const [lastSavedFu, setLastSavedFu] = useState(null);
   const [showSendPrompt, setShowSendPrompt] = useState(false);
 
-  // Billing & Reports States
+  // Billing States
   const [consultFee, setConsultFee] = useState("200");
   const [medFee, setMedFee] = useState("0");
   const [procedureFee, setProcedureFee] = useState("0");
@@ -195,8 +209,23 @@ export default function Home() {
   const [savingBill, setSavingBill] = useState(false);
   const [billMsg, setBillMsg] = useState("");
   const [billsList, setBillsList] = useState([]);
-  const [allHospitalBills, setAllHospitalBills] = useState([]);
   const [currentBill, setCurrentBill] = useState(null);
+
+  // Date-wise Income & Reports State
+  const [filterStartDate, setFilterStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [filterEndDate, setFilterEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [filteredReportBills, setFilteredReportBills] = useState([]);
+  const [filteredReportPatients, setFilteredReportPatients] = useState([]);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportStats, setReportStats] = useState({
+    opdCount: 0,
+    consultationTotal: 0,
+    medicineSalesTotal: 0,
+    procedureTotal: 0,
+    grandTotal: 0,
+    cashTotal: 0,
+    onlineTotal: 0
+  });
 
   // Inventory States
   const [inventoryList, setInventoryList] = useState([]);
@@ -213,22 +242,43 @@ export default function Home() {
   const [newDocNotes, setNewDocNotes] = useState("");
   const [savingDoc, setSavingDoc] = useState(false);
 
-  // Dashboard Clinical Stats (Private Accounts kept separate)
+  // Today Clinical Quick Stats
   const [stats, setStats] = useState({ 
     todayCount: 0, 
     waitingCount: 0, 
     completedCount: 0, 
-    pharmacyPending: 0,
-    todayConsultation: 0,
-    todayMedicineSales: 0,
-    todayTotalCollection: 0
+    pharmacyPending: 0
   });
 
   useEffect(() => {
+    // Restore session role if saved
+    const savedRole = localStorage.getItem("tathastu_role");
+    if (savedRole) setCurrentRole(savedRole);
+
     loadHospitalSettings();
     loadMasterPresets();
     fetchStats();
   }, []);
+
+  function handleLogin(e) {
+    e.preventDefault();
+    setLoginError("");
+    if (enteredPin === PINS[selectedRoleToLogin]) {
+      setCurrentRole(selectedRoleToLogin);
+      localStorage.setItem("tathastu_role", selectedRoleToLogin);
+      setEnteredPin("");
+      setScreen("home");
+    } else {
+      setLoginError("❌ गलत पिन कोड! कृपया सही PIN दर्ज करें।");
+    }
+  }
+
+  function handleLogout() {
+    setCurrentRole(null);
+    localStorage.removeItem("tathastu_role");
+    setEnteredPin("");
+    setScreen("loginScreen");
+  }
 
   async function loadHospitalSettings() {
     try {
@@ -313,8 +363,7 @@ export default function Home() {
       todayStart.setHours(0, 0, 0, 0);
 
       const { data: todPatients } = await supabase.from("patients").select("opd_status, created_at").gte("created_at", todayStart.toISOString());
-      const { data: pharmacyData } = await supabase.from("prescriptions").select("pharmacy_status, medicine_bill_amount").gte("created_at", todayStart.toISOString());
-      const { data: billingData } = await supabase.from("billings").select("consultation_fee, medicine_fee, procedure_fee, total_amount").gte("created_at", todayStart.toISOString());
+      const { data: pharmacyData } = await supabase.from("prescriptions").select("pharmacy_status").gte("created_at", todayStart.toISOString());
 
       const todList = todPatients || [];
       const waiting = todList.filter((p) => (p.opd_status || "Waiting") === "Waiting").length;
@@ -322,37 +371,65 @@ export default function Home() {
       
       const rxList = pharmacyData || [];
       const pharmPending = rxList.filter((r) => (r.pharmacy_status || "Pending") === "Pending").length;
-      const medSales = rxList.reduce((acc, curr) => acc + (Number(curr.medicine_bill_amount) || 0), 0);
-
-      const bills = billingData || [];
-      const consultTotal = bills.reduce((acc, curr) => acc + (Number(curr.consultation_fee) || 0), 0);
-      const grandTotalCollection = bills.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0);
 
       setStats({ 
         todayCount: todList.length, 
         waitingCount: waiting, 
         completedCount: completed, 
-        pharmacyPending: pharmPending,
-        todayConsultation: consultTotal,
-        todayMedicineSales: medSales,
-        todayTotalCollection: grandTotalCollection || (consultTotal + medSales)
+        pharmacyPending: pharmPending
       });
     } catch (e) {
       console.log(e);
     }
   }
 
-  async function fetchAccountsReport() {
+  // Fetch Date-Wise Income & OPD Records
+  async function fetchDateWiseAccounts(startD = filterStartDate, endD = filterEndDate) {
+    setReportLoading(true);
     try {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const { data, error } = await supabase.from("billings").select("*, patients(name, phone)").gte("created_at", todayStart.toISOString()).order("created_at", { ascending: false });
-      if (error) throw error;
-      setAllHospitalBills(data || []);
-      fetchStats();
+      const s = new Date(startD);
+      s.setHours(0, 0, 0, 0);
+
+      const e = new Date(endD);
+      e.setHours(23, 59, 59, 999);
+
+      const [pRes, bRes, rxRes] = await Promise.all([
+        supabase.from("patients").select("*").gte("created_at", s.toISOString()).lte("created_at", e.toISOString()),
+        supabase.from("billings").select("*, patients(name, phone)").gte("created_at", s.toISOString()).lte("created_at", e.toISOString()).order("created_at", { ascending: false }),
+        supabase.from("prescriptions").select("medicine_bill_amount").gte("created_at", s.toISOString()).lte("created_at", e.toISOString())
+      ]);
+
+      const pList = pRes.data || [];
+      const bList = bRes.data || [];
+      const rxList = rxRes.data || [];
+
+      const consult = bList.reduce((acc, curr) => acc + (Number(curr.consultation_fee) || 0), 0);
+      const proc = bList.reduce((acc, curr) => acc + (Number(curr.procedure_fee) || 0), 0);
+      const medFromBills = bList.reduce((acc, curr) => acc + (Number(curr.medicine_fee) || 0), 0);
+      const medFromRx = rxList.reduce((acc, curr) => acc + (Number(curr.medicine_bill_amount) || 0), 0);
+      const totalMedSales = Math.max(medFromBills, medFromRx);
+
+      const grandTot = bList.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0) || (consult + proc + totalMedSales);
+
+      const cash = bList.filter(b => (b.payment_mode || "").includes("Cash") || (b.payment_mode || "").includes("नकद")).reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0);
+      const online = grandTot - cash;
+
+      setFilteredReportPatients(pList);
+      setFilteredReportBills(bList);
+      setReportStats({
+        opdCount: pList.length,
+        consultationTotal: consult,
+        medicineSalesTotal: totalMedSales,
+        procedureTotal: proc,
+        grandTotal: grandTot,
+        cashTotal: Math.max(0, cash),
+        onlineTotal: Math.max(0, online)
+      });
       setScreen("incomeReportScreen");
     } catch (err) {
-      alert("आय रिपोर्ट लोड नहीं हुई: " + err.message);
+      alert("रिपोर्ट लोड करने में त्रुटि: " + err.message);
+    } finally {
+      setReportLoading(false);
     }
   }
 
@@ -415,7 +492,6 @@ export default function Home() {
     }
   }
 
-  // Smart Queue State Update (Waiting / Completed / No-Show / Re-Queue Today)
   async function updatePatientOpdStatus(pId, newStatus, reQueueToday = false) {
     try {
       const updatePayload = { opd_status: newStatus };
@@ -622,9 +698,7 @@ export default function Home() {
     }
   }
 
-  // =========================
-  // PHARMACY MODULE
-  // =========================
+  // Pharmacy Functions
   async function fetchPharmacyQueue() {
     try {
       const { data, error } = await supabase
@@ -761,9 +835,7 @@ export default function Home() {
     window.open(url, "_blank");
   }
 
-  // =========================
-  // FOLLOW-UP HELPERS & WHATSAPP
-  // =========================
+  // Follow-up Functions
   async function fetchFollowUps() {
     if (!selectedPatient?.id) return;
     try {
@@ -830,9 +902,7 @@ export default function Home() {
     window.open(url, "_blank");
   }
 
-  // =========================
-  // BILLING MODULE
-  // =========================
+  // Billing Functions
   async function fetchPatientBills() {
     if (!selectedPatient?.id) return;
     try {
@@ -901,9 +971,7 @@ export default function Home() {
     window.open(url, "_blank");
   }
 
-  // =========================
-  // INVENTORY MODULE
-  // =========================
+  // Inventory Functions
   async function fetchInventory() {
     try {
       const { data, error } = await supabase.from("inventory").select("*").order("medicine_name", { ascending: true });
@@ -938,9 +1006,7 @@ export default function Home() {
     }
   }
 
-  // =========================
-  // PATIENT DOCUMENTS MODULE
-  // =========================
+  // Patient Documents Functions
   async function fetchPatientDocuments() {
     if (!selectedPatient?.id) return;
     try {
@@ -976,9 +1042,6 @@ export default function Home() {
     }
   }
 
-  // =========================
-  // DIRECT PDF DOWNLOAD
-  // =========================
   async function downloadPdfDirect(areaId = "printableArea", docName = "Document") {
     setDownloadingPdf(true);
     try {
@@ -1035,6 +1098,75 @@ export default function Home() {
     window.open(url, "_blank");
   }
 
+  // =========================
+  // 0. ROLE PIN LOGIN SCREEN
+  // =========================
+  if (!currentRole || screen === "loginScreen") {
+    return (
+      <main style={{ minHeight: "100vh", background: "#e8f5e9", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", fontFamily: "Arial, sans-serif" }}>
+        <div style={{ background: "#fff", padding: "28px 22px", borderRadius: "14px", border: "1.5px solid #81c784", maxWidth: "380px", width: "100%", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+          
+          <div style={{ textAlign: "center", marginBottom: "20px" }}>
+            <h1 style={{ color: "#2e7d32", margin: "0 0 4px 0", fontSize: "24px" }}>🌿 Tathastu</h1>
+            <h2 style={{ fontSize: "14px", color: "#333", margin: "0 0 4px 0" }}>{hospitalInfo.hospital_name}</h2>
+            <div style={{ fontSize: "12px", color: "#666" }}>सुरक्षित डेस्क लॉगिन (PIN Login)</div>
+          </div>
+
+          <form onSubmit={handleLogin} style={{ display: "grid", gap: "14px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px", color: "#333" }}>
+                🔑 अपना डेस्क / रोल चुनें:
+              </label>
+              <select
+                value={selectedRoleToLogin}
+                onChange={(e) => { setSelectedRoleToLogin(e.target.value); setLoginError(""); }}
+                style={{ width: "100%", padding: "11px", borderRadius: "6px", border: "1.5px solid #2e7d32", fontWeight: "bold", background: "#f9fbf9", fontSize: "14px" }}
+              >
+                <option value="admin">👑 Admin Desk (Full Access & Accounts)</option>
+                <option value="doctor">👨‍⚕️ वैद्य डेस्क (Doctor Desk - Clinical & OPD)</option>
+                <option value="reception">🏢 रिसेप्शन डेस्क (Registration & Queue)</option>
+                <option value="pharmacy">💊 मेडिकल स्टोर (Pharmacy & Stock)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px", color: "#333" }}>
+                🔒 डेस्क सुरक्षा पिन (Security PIN):
+              </label>
+              <input
+                type="password"
+                maxLength="6"
+                placeholder="4-अंकीय PIN दर्ज करें..."
+                value={enteredPin}
+                autoFocus
+                onChange={(e) => setEnteredPin(e.target.value)}
+                style={{ width: "100%", padding: "12px", borderRadius: "6px", border: "1.5px solid #ccc", boxSizing: "border-box", fontSize: "16px", textAlign: "center", letterSpacing: "4px" }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              style={{ width: "100%", padding: "12px", background: "#2e7d32", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "bold", fontSize: "15px", cursor: "pointer", marginTop: "6px" }}
+            >
+              🔓 डेस्क में प्रवेश करें
+            </button>
+
+            {loginError && (
+              <div style={{ color: "#d32f2f", background: "#ffebee", padding: "8px", borderRadius: "6px", fontSize: "12px", textAlign: "center", fontWeight: "bold" }}>
+                {loginError}
+              </div>
+            )}
+          </form>
+
+          <div style={{ marginTop: "20px", borderTop: "1px dashed #ddd", paddingTop: "12px", fontSize: "11px", color: "#777", textAlign: "center", lineHeight: "1.5" }}>
+            डिफ़ॉल्ट पिन: <strong>Admin: 1234</strong> | <strong>Doctor: 1111</strong><br />
+            <strong>Reception: 2222</strong> | <strong>Pharmacy: 3333</strong>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const searchText = search.toLowerCase().trim();
   const filteredPatients = patients.filter((p) => {
     const pName = (p.name || "").toLowerCase();
@@ -1051,9 +1183,21 @@ export default function Home() {
   });
 
   // =========================
-  // 1. HOME SCREEN (CLEAN CLINICAL DASHBOARD)
+  // 1. HOME SCREEN (ROLE-BASED & CLEAN CLINICAL)
   // =========================
   if (screen === "home") {
+    const isAdmin = currentRole === "admin";
+    const isDoctor = currentRole === "doctor" || isAdmin;
+    const isReception = currentRole === "reception" || isAdmin;
+    const isPharmacy = currentRole === "pharmacy" || isAdmin;
+
+    const roleBadge = {
+      admin: { name: "👑 Admin Desk (Master Control)", color: "#006064", bg: "#e0f7fa" },
+      doctor: { name: "👨‍⚕️ वैद्य डेस्क (Doctor Desk)", color: "#1b5e20", bg: "#e8f5e9" },
+      reception: { name: "🏢 रिसेप्शन डेस्क (Reception)", color: "#e65100", bg: "#fff8e1" },
+      pharmacy: { name: "💊 मेडिकल स्टोर (Pharmacy)", color: "#4a148c", bg: "#f3e5f5" }
+    }[currentRole] || { name: "डेस्क", color: "#333", bg: "#eee" };
+
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
         
@@ -1065,22 +1209,37 @@ export default function Home() {
           {REFERRAL_SOURCES.map((r, i) => <option key={i} value={r} />)}
         </datalist>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        {/* Top Bar with Role Badge & Logout */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
           <div>
-            <h1 style={{ color: "#2e7d32", margin: "0 0 4px 0" }}>🌿 Tathastu</h1>
-            <h2 style={{ fontSize: "16px", color: "#333", margin: "0 0 2px 0" }}>{hospitalInfo.hospital_name}</h2>
-            <h3 style={{ fontSize: "13px", color: "#666", marginTop: 0 }}>वैद्य डेस्क, लाइव OPD व फार्मेसी</h3>
+            <h1 style={{ color: "#2e7d32", margin: "0 0 2px 0" }}>🌿 Tathastu</h1>
+            <h2 style={{ fontSize: "15px", color: "#333", margin: "0 0 4px 0" }}>{hospitalInfo.hospital_name}</h2>
+            <span style={{ background: roleBadge.bg, color: roleBadge.color, padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
+              {roleBadge.name}
+            </span>
           </div>
-          <button
-            onClick={() => setScreen("settingsScreen")}
-            style={{ padding: "8px 12px", background: "#fff", border: "1px solid #ccc", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "bold" }}
-          >
-            ⚙️ सेटिंग्स
-          </button>
+          
+          <div style={{ display: "flex", gap: "6px" }}>
+            {isAdmin && (
+              <button
+                onClick={() => setScreen("settingsScreen")}
+                style={{ padding: "6px 10px", background: "#fff", border: "1px solid #ccc", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
+              >
+                ⚙️ सेटिंग्स
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              style={{ padding: "6px 10px", background: "#ffebee", border: "1px solid #ffcdd2", color: "#c62828", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
+              title="लॉगआउट"
+            >
+              🚪 Exit
+            </button>
+          </div>
         </div>
 
-        {/* Clinical OPD Status Counters (Only Patients, Clean & Professional) */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", maxWidth: "480px", margin: "16px 0 16px 0" }}>
+        {/* Clinical OPD Status Counters */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", maxWidth: "480px", margin: "14px 0" }}>
           <div onClick={() => openPatientList("All")} style={{ background: "#e8f5e9", border: "1px solid #c8e6c9", padding: "12px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
             <div style={{ fontSize: "12px", color: "#2e7d32", fontWeight: "bold" }}>👥 कुल OPD</div>
             <div style={{ fontSize: "22px", fontWeight: "bold", color: "#1b5e20", marginTop: "4px" }}>{stats.todayCount}</div>
@@ -1090,13 +1249,13 @@ export default function Home() {
             <div style={{ fontSize: "22px", fontWeight: "bold", color: "#e65100", marginTop: "4px" }}>{stats.waitingCount}</div>
           </div>
           <div onClick={() => openPatientList("Completed")} style={{ background: "#e0f2f1", border: "1px solid #80cbc4", padding: "12px 6px", borderRadius: "8px", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: "12px", color: "#00695c", fontWeight: "bold" }}>✅ परामर्शित (Done)</div>
+            <div style={{ fontSize: "12px", color: "#00695c", fontWeight: "bold" }}>✅ Done</div>
             <div style={{ fontSize: "22px", fontWeight: "bold", color: "#004d40", marginTop: "4px" }}>{stats.completedCount}</div>
           </div>
         </div>
 
-        {/* Quick Search */}
-        <div style={{ maxWidth: "480px", marginBottom: "14px" }}>
+        {/* Search */}
+        <div style={{ maxWidth: "480px", marginBottom: "12px" }}>
           <input
             type="text"
             placeholder="🔍 रोगी ID (उदा. TAT-1), नाम, रेफरल या मोबाइल खोजें..."
@@ -1105,33 +1264,57 @@ export default function Home() {
           />
         </div>
 
-        {/* Action Grid */}
+        {/* Role-Restricted Action Grid */}
         <div style={{ display: "grid", gap: "10px", maxWidth: "480px" }}>
-          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => setScreen("newPatient")}>
-            ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry, Vitals & Referral)
-          </button>
-          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ba68c8", background: "#f3e5f5", fontWeight: "bold", textAlign: "left", color: "#4a148c" }} onClick={fetchPharmacyQueue}>
-            💊 <strong>मेडिकल स्टोर काउंटर (Pharmacy Rx Dispense & Bill)</strong>
-          </button>
-          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ffb74d", background: "#fff8e1", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("Waiting")}>
-            ⏳ <strong>लाइव OPD कतार (Waiting Room - {stats.waitingCount})</strong>
-          </button>
-          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("All")}>
-            👤 <strong>समस्त पंजीकृत रोगी सूची</strong> (UHID Directory & Re-Queue)
-          </button>
-          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #80deea", background: "#e0f7fa", fontWeight: "bold", textAlign: "left", color: "#006064" }} onClick={fetchAccountsReport}>
-            📊 <strong>दैनिक आय, बिलिंग व हिसाब (Daily Accounts & Income)</strong>
-          </button>
-          <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #81c784", background: "#f1f8e9", fontWeight: "500", textAlign: "left" }} onClick={fetchInventory}>
-            📦 <strong>औषधि भंडार व स्टॉक (Pharmacy Inventory)</strong>
-          </button>
+          
+          {/* Reception / Admin: Registration */}
+          {isReception && (
+            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "bold", textAlign: "left" }} onClick={() => setScreen("newPatient")}>
+              ➕ <strong>नया टोकन / रोगी पंजीकरण</strong> (OPD Entry, Vitals & Referral)
+            </button>
+          )}
+
+          {/* Doctor / Admin: Waiting Queue & Patient List */}
+          {isDoctor && (
+            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1.5px solid #ffb74d", background: "#fff8e1", fontWeight: "bold", textAlign: "left", color: "#e65100" }} onClick={() => openPatientList("Waiting")}>
+              ⏳ <strong>लाइव OPD कतार (Waiting Room - {stats.waitingCount})</strong>
+            </button>
+          )}
+
+          {/* Doctor / Reception / Admin: Patient Directory */}
+          {(isDoctor || isReception) && (
+            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ccc", background: "#fff", fontWeight: "500", textAlign: "left" }} onClick={() => openPatientList("All")}>
+              👤 <strong>समस्त पंजीकृत रोगी सूची</strong> (UHID Directory & Re-Queue)
+            </button>
+          )}
+
+          {/* Pharmacy / Admin: Medical Store Dispense */}
+          {isPharmacy && (
+            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #ba68c8", background: "#f3e5f5", fontWeight: "bold", textAlign: "left", color: "#4a148c" }} onClick={fetchPharmacyQueue}>
+              💊 <strong>मेडिकल स्टोर काउंटर (Pharmacy Rx Dispense & Bill)</strong>
+            </button>
+          )}
+
+          {/* Pharmacy / Admin: Inventory */}
+          {isPharmacy && (
+            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1px solid #81c784", background: "#f1f8e9", fontWeight: "500", textAlign: "left" }} onClick={fetchInventory}>
+              📦 <strong>औषधि भंडार व स्टॉक (Pharmacy Inventory)</strong>
+            </button>
+          )}
+
+          {/* Admin Exclusive: Date-Wise Income & Accounts */}
+          {isAdmin && (
+            <button style={{ padding: "12px", cursor: "pointer", borderRadius: "8px", border: "1.5px solid #80deea", background: "#e0f7fa", fontWeight: "bold", textAlign: "left", color: "#006064" }} onClick={() => fetchDateWiseAccounts(filterStartDate, filterEndDate)}>
+              📊 <strong>तारीख-वार क्लिनिक आय व हिसाब (Date-Wise Accounts & Income)</strong>
+            </button>
+          )}
         </div>
       </main>
     );
   }
 
   // =========================
-  // 1.1 DEDICATED CLINIC INCOME & ACCOUNTS REPORT SCREEN
+  // 1.1 DATE-WISE INCOME & FINANCIAL REPORT (ADMIN EXCLUSIVE)
   // =========================
   if (screen === "incomeReportScreen") {
     return (
@@ -1140,40 +1323,89 @@ export default function Home() {
           ← वापस होम
         </button>
 
-        <h2 style={{ margin: "0 0 12px 0", color: "#006064" }}>📊 दैनिक आय, बिलिंग व क्लिनिक हिसाब</h2>
+        <h2 style={{ margin: "0 0 12px 0", color: "#006064" }}>📊 दिनांक-वार क्लिनिक आय व वित्तीय हिसाब</h2>
 
-        {/* 3-Grid Financial Breakdown Card */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: "8px", maxWidth: "520px", marginBottom: "16px" }}>
-          <div style={{ background: "#fff", border: "1px solid #c5e1a5", padding: "12px 8px", borderRadius: "8px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: "#33691e", fontWeight: "bold" }}>👨‍⚕️ OPD परामर्श शुल्क</div>
-            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#1b5e20", marginTop: "4px" }}>₹{stats.todayConsultation}</div>
+        {/* Date Filter Controls */}
+        <div style={{ background: "#fff", padding: "14px", borderRadius: "10px", border: "1.5px solid #80deea", maxWidth: "550px", marginBottom: "16px" }}>
+          <div style={{ fontSize: "12px", fontWeight: "bold", color: "#006064", marginBottom: "8px" }}>📅 दिनांक फ़िल्टर (Date Range Filter):</div>
+          
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "11px", color: "#555" }}>प्रारंभिक दिनांक (From):</label>
+              <input
+                type="date"
+                value={filterStartDate}
+                onChange={(e) => setFilterStartDate(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box", fontSize: "13px" }}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "11px", color: "#555" }}>अंतिम दिनांक (To):</label>
+              <input
+                type="date"
+                value={filterEndDate}
+                onChange={(e) => setFilterEndDate(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box", fontSize: "13px" }}
+              />
+            </div>
           </div>
 
-          <div style={{ background: "#fff", border: "1px solid #ce93d8", padding: "12px 8px", borderRadius: "8px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: "#7b1fa2", fontWeight: "bold" }}>💊 औषधि बिक्री</div>
-            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#4a148c", marginTop: "4px" }}>₹{stats.todayMedicineSales}</div>
-          </div>
-
-          <div style={{ background: "#e0f7fa", border: "1.5px solid #80deea", padding: "12px 8px", borderRadius: "8px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: "#006064", fontWeight: "bold" }}>💰 आज का कुल कलेक्शन</div>
-            <div style={{ fontSize: "22px", fontWeight: "bold", color: "#004d40", marginTop: "4px" }}>₹{stats.todayTotalCollection}</div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={() => fetchDateWiseAccounts(filterStartDate, filterEndDate)}
+              disabled={reportLoading}
+              style={{ flex: 1.5, padding: "10px", background: "#006064", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "13px" }}
+            >
+              {reportLoading ? "⏳ गणना हो रही है..." : "🔍 हिसाब देखें / Filter"}
+            </button>
+            <button
+              onClick={() => {
+                const today = new Date().toISOString().slice(0, 10);
+                setFilterStartDate(today);
+                setFilterEndDate(today);
+                fetchDateWiseAccounts(today, today);
+              }}
+              style={{ flex: 1, padding: "10px", background: "#e0f2f1", color: "#004d40", border: "1px solid #80cbc4", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "13px" }}
+            >
+              आज (Today)
+            </button>
           </div>
         </div>
 
-        <h3 style={{ color: "#333", margin: "16px 0 10px 0" }}>📜 आज की रसीदें व भुगतान विवरण ({allHospitalBills.length})</h3>
+        {/* Calculated Financial Summary Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: "8px", maxWidth: "550px", marginBottom: "14px" }}>
+          <div style={{ background: "#fff", border: "1px solid #c5e1a5", padding: "10px", borderRadius: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#33691e", fontWeight: "bold" }}>👨‍⚕️ OPD परामर्श</div>
+            <div style={{ fontSize: "18px", fontWeight: "bold", color: "#1b5e20", marginTop: "2px" }}>₹{reportStats.consultationTotal}</div>
+            <div style={{ fontSize: "10px", color: "#666" }}>रोगी: {reportStats.opdCount}</div>
+          </div>
 
-        {allHospitalBills.length === 0 ? (
-          <p>आज कोई बिलिंग रिकॉर्ड दर्ज नहीं है।</p>
+          <div style={{ background: "#fff", border: "1px solid #ce93d8", padding: "10px", borderRadius: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#7b1fa2", fontWeight: "bold" }}>💊 औषधि बिक्री</div>
+            <div style={{ fontSize: "18px", fontWeight: "bold", color: "#4a148c", marginTop: "2px" }}>₹{reportStats.medicineSalesTotal}</div>
+          </div>
+
+          <div style={{ background: "#e0f7fa", border: "1.5px solid #80deea", padding: "10px", borderRadius: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#006064", fontWeight: "bold" }}>💰 कुल कलेक्शन</div>
+            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#004d40", marginTop: "2px" }}>₹{reportStats.grandTotal}</div>
+            <div style={{ fontSize: "10px", color: "#004d40", marginTop: "2px" }}>Cash: ₹{reportStats.cashTotal} | UPI: ₹{reportStats.onlineTotal}</div>
+          </div>
+        </div>
+
+        <h3 style={{ color: "#333", margin: "16px 0 10px 0" }}>📜 चयनित अवधि की रसीदें ({filteredReportBills.length})</h3>
+
+        {filteredReportBills.length === 0 ? (
+          <p>इस दिनांक सीमा में कोई बिलिंग रिकॉर्ड दर्ज नहीं है।</p>
         ) : (
-          <div style={{ display: "grid", gap: "10px", maxWidth: "520px" }}>
-            {allHospitalBills.map((b) => (
+          <div style={{ display: "grid", gap: "10px", maxWidth: "550px" }}>
+            {filteredReportBills.map((b) => (
               <div key={b.id} style={{ background: "#fff", padding: "12px", borderRadius: "8px", border: "1px solid #ddd" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold" }}>
                   <span>👤 {b.patients?.name || `रोगी #${b.patient_id}`}</span>
                   <span style={{ color: "#00796b", fontSize: "15px" }}>₹{b.total_amount}</span>
                 </div>
                 <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
-                  🕒 {formatTime(b.created_at)} | माध्यम: <strong>{b.payment_mode}</strong>
+                  दिनांक: {formatDate(b.created_at)} ({formatTime(b.created_at)}) | माध्यम: <strong>{b.payment_mode}</strong>
                 </div>
                 <div style={{ fontSize: "12px", color: "#555", marginTop: "4px" }}>
                   परामर्श: ₹{b.consultation_fee || 0} | औषधि: ₹{b.medicine_fee || 0} | प्रक्रिया: ₹{b.procedure_fee || 0}
@@ -1187,7 +1419,7 @@ export default function Home() {
   }
 
   // =========================
-  // 2. PHARMACY QUEUE & SEARCH SCREEN
+  // 2. PHARMACY QUEUE SCREEN
   // =========================
   if (screen === "pharmacyQueueScreen") {
     const pSearch = pharmacySearch.toLowerCase().trim();
@@ -1281,7 +1513,7 @@ export default function Home() {
   }
 
   // =========================
-  // 3. EDITABLE / DELETABLE PHARMACY DISPENSE & BILLING SCREEN
+  // 3. EDITABLE PHARMACY DISPENSE SCREEN
   // =========================
   if (screen === "dispenseScreen" && dispenseRx && dispensePatient) {
     return (
@@ -1310,12 +1542,12 @@ export default function Home() {
             </button>
           </div>
 
-          <h4 style={{ color: "#4a148c", margin: "14px 0 8px 0" }}>📦 दवाइयों का वितरण, मात्रा व मूल्य (Dispensing Table):</h4>
+          <h4 style={{ color: "#4a148c", margin: "14px 0 8px 0" }}>📦 दवाइयों का वितरण, मात्रा व मूल्य:</h4>
           
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", marginBottom: "10px" }}>
             <thead>
               <tr style={{ background: "#f3e5f5", color: "#4a148c", textAlign: "left" }}>
-                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>औषधि नाम (बदलें/संशोधन)</th>
+                <th style={{ padding: "6px", border: "1px solid #e1bee7" }}>औषधि नाम</th>
                 <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "45px" }}>मात्रा</th>
                 <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "95px" }}>इकाई</th>
                 <th style={{ padding: "6px", border: "1px solid #e1bee7", width: "55px" }}>दर (₹)</th>
@@ -1330,7 +1562,7 @@ export default function Home() {
                     <input
                       type="text"
                       value={item.name}
-                      placeholder="दवा का नाम या ब्रांड..."
+                      placeholder="दवा का नाम..."
                       onChange={(e) => updateDispenseItemRow(idx, "name", e.target.value)}
                       style={{ width: "100%", padding: "4px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box", fontWeight: "bold", fontSize: "12px" }}
                     />
@@ -1375,7 +1607,6 @@ export default function Home() {
                       type="button"
                       onClick={() => removeDispenseItemRow(idx)}
                       style={{ color: "#d32f2f", background: "#ffebee", border: "1px solid #ffcdd2", borderRadius: "4px", cursor: "pointer", padding: "3px 6px", fontWeight: "bold", fontSize: "11px" }}
-                      title="बिल से हटाएं"
                     >
                       ✕
                     </button>
@@ -1393,12 +1624,10 @@ export default function Home() {
             ➕ अन्य दवा / वस्तु जोड़ें (Add Extra Item)
           </button>
 
-          {/* Grand Total, Custom WhatsApp Phone & Payment Mode */}
           <div style={{ background: "#fdf7ff", padding: "12px", borderRadius: "8px", border: "1px solid #e1bee7", marginBottom: "14px" }}>
-            
             <div style={{ marginBottom: "10px" }}>
               <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", color: "#4a148c", marginBottom: "4px" }}>
-                📱 WhatsApp बिल भेजने हेतु मोबाइल नंबर (वैकल्पिक/अन्य):
+                📱 WhatsApp बिल भेजने हेतु मोबाइल नंबर:
               </label>
               <input
                 type="tel"
@@ -1410,12 +1639,12 @@ export default function Home() {
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-              <span style={{ fontSize: "15px", fontWeight: "bold", color: "#4a148c" }}>कुल औषधि मूल्य (Total Medicine Charges):</span>
+              <span style={{ fontSize: "15px", fontWeight: "bold", color: "#4a148c" }}>कुल औषधि मूल्य:</span>
               <span style={{ fontSize: "22px", fontWeight: "bold", color: "#4a148c" }}>₹{medicineBillAmount}</span>
             </div>
 
             <div>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>भुगतान माध्यम (Payment Mode):</label>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>भुगतान माध्यम:</label>
               <select
                 value={dispensePayMode}
                 onChange={(e) => setDispensePayMode(e.target.value)}
@@ -1434,7 +1663,7 @@ export default function Home() {
               disabled={dispensing}
               style={{ padding: "12px", background: "#7b1fa2", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", fontSize: "15px", cursor: "pointer" }}
             >
-              {dispensing ? "⏳ प्रक्रियाधीन..." : "✅ दवा दी गई व बिल प्रिंट करें (Complete & Print Bill)"}
+              {dispensing ? "⏳ प्रक्रियाधीन..." : "✅ दवा दी गई व बिल प्रिंट करें"}
             </button>
 
             <button
@@ -1457,7 +1686,7 @@ export default function Home() {
   }
 
   // =========================
-  // 3.1 DEDICATED PRINTABLE MEDICINE BILL SLIP SCREEN
+  // 3.1 PRINT MEDICINE BILL SLIP
   // =========================
   if (screen === "printMedicineBillPreview" && dispenseRx && dispensePatient) {
     const validItems = dispenseItems.filter(m => m.name && m.name.trim());
@@ -1484,7 +1713,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Printable Medicine Bill Area */}
         <div id="medicinePrintableArea" style={{ border: "2px solid #7b1fa2", padding: "20px", borderRadius: "10px", background: "#fff" }}>
           <div style={{ textAlign: "center", borderBottom: "2px solid #7b1fa2", paddingBottom: "10px", marginBottom: "14px" }}>
             <h2 style={{ margin: "0", color: "#7b1fa2", fontSize: "20px" }}>🌿 {hospitalInfo.hospital_name}</h2>
@@ -1552,7 +1780,7 @@ export default function Home() {
   }
 
   // =========================
-  // 4. MASTER SETTINGS SCREEN
+  // 4. MASTER SETTINGS SCREEN (ADMIN EXCLUSIVE)
   // =========================
   if (screen === "settingsScreen") {
     const getPlaceholderText = () => {
@@ -1665,7 +1893,7 @@ export default function Home() {
 
         <div style={{ background: "#fff", padding: "16px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "520px" }}>
           <h3 style={{ margin: "0 0 6px 0", color: "#333" }}>📥 ऑफलाइन डेटा बैकअप (Excel / CSV)</h3>
-          <p style={{ fontSize: "12px", color: "#666", margin: "0 0 10px 0" }}>अपने क्लिनिक के समस्त रोगियों का रिकॉर्ड एक क्लिक में सुरक्षित डाउनलोड करें:</p>
+          <p style={{ fontSize: "12px", color: "#666", margin: "0 0 10px 0" }}>अपने क्लिनिक के समस्त रोगियों का रिकॉर्ड डाउनलोड करें:</p>
           <button onClick={exportPatientsCSV} style={{ width: "100%", padding: "10px", background: "#00796b", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>
             📥 सम्पूर्ण रोगी डेटा (CSV) डाउनलोड करें
           </button>
@@ -1675,7 +1903,7 @@ export default function Home() {
   }
 
   // =========================
-  // 5. NEW PATIENT SCREEN (WITH REFERRAL & VITALS)
+  // 5. NEW PATIENT SCREEN
   // =========================
   if (screen === "newPatient") {
     return (
@@ -1699,7 +1927,6 @@ export default function Home() {
 
           <input style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }} placeholder="मोबाइल नंबर (WhatsApp)" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
           
-          {/* Referral Source Input */}
           <div>
             <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", color: "#2e7d32", marginBottom: "4px" }}>
               🤝 किसके संदर्भ से आए (Referred By):
@@ -1752,7 +1979,7 @@ export default function Home() {
         <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc" }} onClick={() => setScreen("profile")}>
           ← वापस प्रोफाइल
         </button>
-        <h2>✏️ रोगी विवरण व वाइटल्स सुधारें (TAT-{selectedPatient.id})</h2>
+        <h2>✏️ रोगी विवरण सुधारें (TAT-{selectedPatient.id})</h2>
         <div style={{ display: "grid", gap: "12px", maxWidth: "460px" }}>
           <div>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>रोगी का नाम:</label>
@@ -1810,7 +2037,7 @@ export default function Home() {
   }
 
   // =========================
-  // 7. PATIENT LIST SCREEN (WITH NO-SHOW & RE-QUEUE ACTIONS)
+  // 7. PATIENT LIST SCREEN
   // =========================
   if (screen === "patients") {
     return (
@@ -1824,7 +2051,6 @@ export default function Home() {
           <span style={{ fontSize: "13px", fontWeight: "bold", color: "#2e7d32" }}>फ़िल्टर: {opdFilter}</span>
         </div>
 
-        {/* Filter Pills with No-Show */}
         <div style={{ display: "flex", gap: "6px", marginBottom: "14px", maxWidth: "520px" }}>
           <button
             onClick={() => setOpdFilter("All")}
@@ -1836,19 +2062,19 @@ export default function Home() {
             onClick={() => setOpdFilter("Waiting")}
             style={{ flex: 1.2, padding: "8px", borderRadius: "6px", border: "1px solid #ffe082", background: opdFilter === "Waiting" ? "#f57f17" : "#fff8e1", color: opdFilter === "Waiting" ? "#fff" : "#e65100", fontWeight: "bold", cursor: "pointer", fontSize: "11px" }}
           >
-            ⏳ प्रतीक्षारत (Waiting)
+            ⏳ प्रतीक्षारत
           </button>
           <button
             onClick={() => setOpdFilter("Completed")}
             style={{ flex: 1.2, padding: "8px", borderRadius: "6px", border: "1px solid #80cbc4", background: opdFilter === "Completed" ? "#00695c" : "#e0f2f1", color: opdFilter === "Completed" ? "#fff" : "#004d40", fontWeight: "bold", cursor: "pointer", fontSize: "11px" }}
           >
-            ✅ परामर्शित (Done)
+            ✅ Done
           </button>
           <button
             onClick={() => setOpdFilter("NoShow")}
             style={{ flex: 1.2, padding: "8px", borderRadius: "6px", border: "1px solid #ef9a9a", background: opdFilter === "NoShow" ? "#d32f2f" : "#ffebee", color: opdFilter === "NoShow" ? "#fff" : "#c62828", fontWeight: "bold", cursor: "pointer", fontSize: "11px" }}
           >
-            ❌ अनुपस्थित (No-Show)
+            ❌ No-Show
           </button>
         </div>
 
@@ -1909,7 +2135,6 @@ export default function Home() {
                     📋 {p.complaint || "कोई शिकायत नहीं"}
                   </div>
 
-                  {/* Quick Smart Queue Actions */}
                   <div style={{ display: "flex", gap: "6px", marginTop: "10px", paddingTop: "8px", borderTop: "1px dashed #eee" }}>
                     <button
                       onClick={() => { setSelectedPatient(p); setScreen("profile"); }}
@@ -1922,7 +2147,6 @@ export default function Home() {
                       <button
                         onClick={() => updatePatientOpdStatus(p.id, "NoShow")}
                         style={{ padding: "6px 10px", background: "#ffebee", color: "#c62828", border: "1px solid #ffcdd2", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
-                        title="रोगी नहीं आया / कतार से हटाएं"
                       >
                         ❌ No-Show
                       </button>
@@ -1932,9 +2156,8 @@ export default function Home() {
                       <button
                         onClick={() => updatePatientOpdStatus(p.id, "Waiting", true)}
                         style={{ padding: "6px 10px", background: "#fff8e1", color: "#e65100", border: "1px solid #ffe082", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
-                        title="आज की live कतार में पुनः जोड़ें"
                       >
-                        🔄 Re-Queue (आज जोड़ें)
+                        🔄 Re-Queue
                       </button>
                     )}
                   </div>
@@ -1948,13 +2171,15 @@ export default function Home() {
   }
 
   // =========================
-  // 8. PATIENT PROFILE SCREEN
+  // 8. PATIENT PROFILE SCREEN (ROLE PROTECTED)
   // =========================
   if (screen === "profile" && selectedPatient) {
     const p = selectedPatient;
     const status = p.opd_status || "Waiting";
     const isWaiting = status === "Waiting";
     const isNoShow = status === "NoShow";
+    const isAdmin = currentRole === "admin";
+    const isDoctor = currentRole === "doctor" || isAdmin;
 
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
@@ -1972,7 +2197,7 @@ export default function Home() {
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: isWaiting ? "#fff8e1" : isNoShow ? "#ffebee" : "#e8f5e9", padding: "8px 10px", borderRadius: "6px", margin: "10px 0", fontSize: "13px" }}>
-            <span><strong>स्थिति:</strong> {isWaiting ? "⏳ प्रतीक्षारत (In Queue)" : isNoShow ? "❌ अनुपस्थित (No-Show)" : "✅ परामर्श पूर्ण"}</span>
+            <span><strong>स्थिति:</strong> {isWaiting ? "⏳ प्रतीक्षारत" : isNoShow ? "❌ No-Show" : "✅ परामर्श पूर्ण"}</span>
             <div style={{ display: "flex", gap: "4px" }}>
               {isWaiting ? (
                 <button
@@ -2015,40 +2240,48 @@ export default function Home() {
 
           <hr style={{ margin: "12px 0" }} />
 
-          <button
-            onClick={() => { setAssessmentMessage(""); setScreen("assessment"); }}
-            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", borderRadius: "6px", border: "1px solid #ccc", background: "#fff", textAlign: "left" }}
-          >
-            📋 <strong>Clinical Assessment</strong> (चिकित्सकीय परीक्षण)
-          </button>
+          {/* Clinical Features for Doctor & Admin */}
+          {isDoctor && (
+            <>
+              <button
+                onClick={() => { setAssessmentMessage(""); setScreen("assessment"); }}
+                style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", borderRadius: "6px", border: "1px solid #ccc", background: "#fff", textAlign: "left" }}
+              >
+                📋 <strong>Clinical Assessment</strong> (चिकित्सकीय परीक्षण)
+              </button>
 
-          <button
-            onClick={() => { setPrescriptionMsg(""); setScreen("prescription"); }}
-            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e8f5e9", border: "1px solid #81c784", borderRadius: "6px", textAlign: "left" }}
-          >
-            💊 <strong>नया Prescription</strong> (पर्चा बनाएं व फार्मेसी भेजें)
-          </button>
+              <button
+                onClick={() => { setPrescriptionMsg(""); setScreen("prescription"); }}
+                style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e8f5e9", border: "1px solid #81c784", borderRadius: "6px", textAlign: "left" }}
+              >
+                💊 <strong>नया Prescription</strong> (पर्चा बनाएं व फार्मेसी भेजें)
+              </button>
 
-          <button
-            onClick={fetchPatientDocuments}
-            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e1f5fe", border: "1px solid #81d4fa", borderRadius: "6px", textAlign: "left" }}
-          >
-            📑 <strong>जाँच व रिपोर्ट फाइलें (Lab / USG / ECG)</strong>
-          </button>
+              <button
+                onClick={fetchPatientDocuments}
+                style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e1f5fe", border: "1px solid #81d4fa", borderRadius: "6px", textAlign: "left" }}
+              >
+                📑 <strong>जाँच व रिपोर्ट फाइलें (Lab / USG / ECG)</strong>
+              </button>
 
-          <button
-            onClick={fetchFollowUps}
-            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#fff3e0", border: "1px solid #ffb74d", borderRadius: "6px", textAlign: "left" }}
-          >
-            🔄 <strong>अनुवर्तन (Follow-up Tracker)</strong>
-          </button>
+              <button
+                onClick={fetchFollowUps}
+                style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#fff3e0", border: "1px solid #ffb74d", borderRadius: "6px", textAlign: "left" }}
+              >
+                🔄 <strong>अनुवर्तन (Follow-up Tracker)</strong>
+              </button>
+            </>
+          )}
 
-          <button
-            onClick={fetchPatientBills}
-            style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e0f2f1", border: "1px solid #80cbc4", borderRadius: "6px", textAlign: "left" }}
-          >
-            💳 <strong>OPD बिलिंग व रसीद (Billing & Receipts)</strong>
-          </button>
+          {/* Billing Receipts (Admin & Reception) */}
+          {(isAdmin || currentRole === "reception") && (
+            <button
+              onClick={fetchPatientBills}
+              style={{ width: "100%", padding: "12px", marginBottom: "8px", cursor: "pointer", fontWeight: "bold", background: "#e0f2f1", border: "1px solid #80cbc4", borderRadius: "6px", textAlign: "left" }}
+            >
+              💳 <strong>OPD बिलिंग व रसीद (Billing & Receipts)</strong>
+            </button>
+          )}
 
           <button
             onClick={fetchPatientPrescriptions}
@@ -2235,7 +2468,6 @@ export default function Home() {
 
           <hr style={{ margin: "12px 0" }} />
 
-          {/* Quick Medicine Picker */}
           <div style={{ marginBottom: "12px" }}>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", color: "#2e7d32", marginBottom: "6px" }}>
               📂 कल्प वर्ग चुनें (Quick Medicine Picker):
@@ -2283,7 +2515,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Medicines List */}
           <h4 style={{ color: "#2e7d32", margin: "16px 0 8px 0" }}>🌿 निर्धारित औषधियाँ ({medicines.length})</h4>
           {medicines.map((m, idx) => (
             <div key={idx} style={{ background: "#f9f9f9", padding: "12px", borderRadius: "8px", marginBottom: "10px", border: "1px solid #e0e0e0" }}>
@@ -2338,7 +2569,6 @@ export default function Home() {
             ➕ अन्य खाली पंक्ति जोड़ें
           </button>
 
-          {/* Investigation Section */}
           <h4 style={{ color: "#2e7d32", margin: "14px 0 6px 0" }}>🔬 आवश्यक जाँच (Investigations / Lab Tests)</h4>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", marginBottom: "8px" }}>
             {investigationList.map((test, i) => (
@@ -2359,7 +2589,6 @@ export default function Home() {
             style={{ width: "100%", padding: "8px", marginBottom: "12px", boxSizing: "border-box", borderRadius: "4px", border: "1px solid #ccc" }}
           />
 
-          {/* Diet Instructions */}
           <h4 style={{ color: "#2e7d32", margin: "10px 0 6px 0" }}>🥗 पथ्यापथ्य (आहार-विहार निर्देश)</h4>
           <textarea
             placeholder="पथ्य / अपथ्य निर्देश..."
@@ -2545,7 +2774,7 @@ export default function Home() {
   }
 
   // =========================
-  // 13. BILLING & RECEIPTS SCREEN
+  // 13. BILLING SCREEN
   // =========================
   if (screen === "billingScreen" && selectedPatient) {
     const c = Number(consultFee) || 0;
@@ -2562,7 +2791,7 @@ export default function Home() {
         <h2>💳 OPD बिलिंग व रसीद - {selectedPatient.name} (TAT-{selectedPatient.id})</h2>
 
         <div style={{ background: "#fff", padding: "18px", borderRadius: "10px", border: "1px solid #ddd", maxWidth: "500px", marginBottom: "20px" }}>
-          <h3 style={{ margin: "0 0 12px 0", color: "#00796b" }}>➕ नया बिल / रसीद तैयार करें</h3>
+          <h3 style={{ margin: "0 0 12px 0", color: "#00796b" }}>➕ नया बिल तैयार करें</h3>
           
           <div style={{ marginBottom: "10px" }}>
             <label style={{ display: "block", fontSize: "13px", fontWeight: "bold", marginBottom: "4px" }}>परामर्श शुल्क (Consultation Fee ₹):</label>
@@ -2632,7 +2861,7 @@ export default function Home() {
   }
 
   // =========================
-  // 14. PRINT OPD BILL PREVIEW SCREEN
+  // 14. PRINT OPD BILL PREVIEW
   // =========================
   if (screen === "printBillPreview" && selectedPatient && currentBill) {
     const b = currentBill;
@@ -2723,7 +2952,7 @@ export default function Home() {
   }
 
   // =========================
-  // 15. PHARMACY INVENTORY SCREEN
+  // 15. INVENTORY SCREEN
   // =========================
   if (screen === "inventoryScreen") {
     return (
@@ -2830,7 +3059,7 @@ export default function Home() {
   }
 
   // =========================
-  // 17. PRINT / PDF PREVIEW SCREEN (DOCTOR RX)
+  // 17. PRINT PREVIEW SCREEN (DOCTOR RX)
   // =========================
   if (screen === "printPreview" && selectedPatient && currentPrescription) {
     const rx = currentPrescription;
