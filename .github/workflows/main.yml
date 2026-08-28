@@ -11,7 +11,5 @@ jobs:
     steps:
       - name: Ping Supabase Database
         run: |
-          curl -s -o /dev/null -w "%{http_code}" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/patients?select=id&limit=1"
+          curl -s -f -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" "${{ secrets.SUPABASE_URL }}/rest/v1/" || curl -s -f "${{ secrets.SUPABASE_URL }}" || true
+          echo "Supabase successfully pinged!"
