@@ -54,7 +54,7 @@ const PINS = {
   admin: "1234",
   doctor: "1111",
   reception: "2222",
-  pharmacy: "3333"
+  pharmacy: "4444"
 };
 
 function formatTime(isoStr) {
@@ -129,6 +129,9 @@ export default function Home() {
   const [weight, setWeight] = useState("");
   const [temperature, setTemperature] = useState("");
   const [spo2, setSpo2] = useState("");
+    const [feeAmount, setFeeAmount] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState("Paid");
+  const [paymentMode, setPaymentMode] = useState("Cash");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -144,6 +147,9 @@ export default function Home() {
   const [editWeight, setEditWeight] = useState("");
   const [editTemperature, setEditTemperature] = useState("");
   const [editSpo2, setEditSpo2] = useState("");
+      const [editFeeAmount, setEditFeeAmount] = useState("");
+    const [editPaymentStatus, setEditPaymentStatus] = useState("Paid");
+    const [editPaymentMode, setEditPaymentMode] = useState("Cash");
   const [editingPatient, setEditingPatient] = useState(false);
   const [editMsg, setEditMsg] = useState("");
 
@@ -539,6 +545,9 @@ export default function Home() {
         temperature: temperature.trim() || null,
         spo2: spo2.trim() || null,
         opd_status: "Waiting",
+        fee_amount: Number(feeAmount) || 0,
+        payment_status: paymentStatus,
+        payment_mode: paymentMode,
         created_at: new Date().toISOString()
       };
 
@@ -561,7 +570,10 @@ export default function Home() {
       setMessage(`✅ टोकन जारी! (UHID: ${generatedId} | समय: ${regTime})`);
       setName(""); setAge(""); setGender(""); setPhone(""); setComplaint(""); setReferredBy("");
       setBp(""); setPulseRate(""); setWeight(""); setTemperature(""); setSpo2("");
-      fetchStats();
+      setFeeAmount("");
+      setPaymentStatus("Paid");
+      setPaymentMode("Cash");
+       fetchStats();
     } catch (error) {
       setMessage("❌ Save Error: " + (error?.message || "Failed"));
     } finally {
@@ -596,6 +608,9 @@ export default function Home() {
     setEditReferredBy(selectedPatient.referred_by || "");
     setEditBp(selectedPatient.bp || "");
     setEditPulseRate(selectedPatient.pulse_rate || "");
+    setEditFeeAmount(selectedPatient.fee_amount?.toString() || "");
+    setEditPaymentStatus(selectedPatient.payment_status || "Paid");
+    setEditPaymentMode(selectedPatient.payment_mode || "Cash");
     setEditWeight(selectedPatient.weight || "");
     setEditTemperature(selectedPatient.temperature || "");
     setEditSpo2(selectedPatient.spo2 || "");
@@ -1473,7 +1488,60 @@ export default function Home() {
               <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "12px" }} placeholder="Temp (°F)" value={temperature} onChange={(e) => setTemperature(e.target.value)} />
               <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "12px" }} placeholder="SpO2 (%)" value={spo2} onChange={(e) => setSpo2(e.target.value)} />
             </div>
+                {/* Consultation Fee & Payment Section */}
+<div style={{ background: "#f0fdf4", padding: "12px", borderRadius: "8px", border: "1px solid #bbf7d0" }}>
+  <div style={{ fontSize: "13px", fontWeight: "bold", color: "#166534", marginBottom: "8px" }}>
+    💰 परामर्श शुल्क व भुगतान (Consultation Fee)
+  </div>
+  
+  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+    <div>
+      <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
+        शुल्क (₹)
+      </label>
+      <input
+        type="number"
+        placeholder="उदा. 200"
+        value={feeAmount}
+        onChange={(e) => setFeeAmount(e.target.value)}
+        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box" }}
+      />
+    </div>
+
+    <div>
+      <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
+        भुगतान स्थिति
+      </label>
+      <select
+        value={paymentStatus}
+        onChange={(e) => setPaymentStatus(e.target.value)}
+        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box" }}
+      >
+        <option value="Paid">Paid (जमा)</option>
+        <option value="Due">Due (बाकी)</option>
+        <option value="Free">Free (निःशुल्क)</option>
+      </select>
+    </div>
+
+    <div>
+      <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
+        माध्यम (Mode)
+      </label>
+      <select
+        disabled={paymentStatus === "Free"}
+        value={paymentMode}
+        onChange={(e) => setPaymentMode(e.target.value)}
+        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box", opacity: paymentStatus === "Free" ? 0.5 : 1 }}
+      >
+        <option value="Cash">Cash (नकद)</option>
+        <option value="Online">Online (UPI)</option>
+      </select>
+    </div>
+  </div>
+</div>
+
           </div>
+      
 
           <input
             list="diagnosisSuggestions"
