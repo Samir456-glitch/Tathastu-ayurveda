@@ -285,6 +285,13 @@ export default function Home() {
     fetchInventory();
   }, []);
 
+  // Auto-reload patient queue on screen change or page refresh
+  useEffect(() => {
+    if (screen === "patients") {
+      fetchPatients();
+    }
+  }, [screen]);
+
   function handleLogin(e) {
     e.preventDefault();
     setLoginError("");
@@ -1379,7 +1386,6 @@ export default function Home() {
       pharmacy: { name: "💊 मेडिकल स्टोर", color: "#4a148c", bg: "#f3e5f5" }
     }[currentRole] || { name: "डेस्क", color: "#333", bg: "#eee" };
 
-    // Receptionist shift calculations
     const shiftCash = todayPatientsList.filter(p => (p.payment_status === "Paid" || p.payment_status === "जमा") && p.payment_mode === "Cash").reduce((sum, p) => sum + (Number(p.fee_amount) || 0), 0);
     const shiftOnline = todayPatientsList.filter(p => (p.payment_status === "Paid" || p.payment_status === "जमा") && (p.payment_mode === "Online" || p.payment_mode === "UPI")).reduce((sum, p) => sum + (Number(p.fee_amount) || 0), 0);
     const shiftDue = todayPatientsList.filter(p => p.payment_status === "Due" || p.payment_status === "बाकी").reduce((sum, p) => sum + (Number(p.fee_amount) || 0), 0);
@@ -1605,7 +1611,7 @@ export default function Home() {
     );
   }
 
-  // 3. PATIENTS LIST & QUEUE (WITH PAYMENT BADGE)
+  // 3. PATIENTS LIST & QUEUE (WITH DIRECT START CONSULTATION BUTTON)
   if (screen === "patients") {
     const filtered = patients.filter((p) => {
       const pName = (p.name || "").toLowerCase();
@@ -1717,7 +1723,21 @@ export default function Home() {
                     📋 {p.complaint || "कोई शिकायत नहीं"}
                   </div>
 
-                  <div style={{ display: "flex", gap: "6px", marginTop: "10px", paddingTop: "8px", borderTop: "1px dashed #eee" }}>
+                  <div style={{ display: "flex", gap: "6px", marginTop: "10px", paddingTop: "8px", borderTop: "1px dashed #eee", flexWrap: "wrap" }}>
+                    {/* Direct Consultation Button for Waiting Patients */}
+                    {(currentRole === "doctor" || currentRole === "admin") && isWaiting && (
+                      <button
+                        onClick={() => {
+                          setSelectedPatient(p);
+                          setPrescriptionMsg("");
+                          setScreen("prescription");
+                        }}
+                        style={{ flex: 1.5, padding: "8px", background: "#15803d", color: "#fff", border: "none", borderRadius: "4px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}
+                      >
+                        🩺 परामर्श शुरू करें (Start Consultation)
+                      </button>
+                    )}
+
                     <button
                       onClick={() => { setSelectedPatient(p); setScreen("profile"); }}
                       style={{ flex: 1, padding: "6px", background: "#e8f5e9", color: "#2e7d32", border: "1px solid #c8e6c9", borderRadius: "4px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}
@@ -2489,8 +2509,8 @@ export default function Home() {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "16px", fontFamily: "Arial, sans-serif" }}>
         <GlobalDatalists />
-        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("profile")}>
-          ← रोगी प्रोफाइल
+        <button style={{ padding: "8px 14px", marginBottom: "16px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ccc", background: "#fff" }} onClick={() => setScreen("patients")}>
+          ← वापस कतार / सूची
         </button>
         <h2>💊 आयुर्वेद चिकित्सा पर्चा (Rx)</h2>
 
