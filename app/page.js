@@ -54,7 +54,7 @@ const PINS = {
   admin: "1234",
   doctor: "1111",
   reception: "2222",
-  pharmacy: "4444"
+  pharmacy: "3333"
 };
 
 function formatTime(isoStr) {
@@ -81,12 +81,33 @@ function AssessmentInput({ label, value, onChange, textarea = false, list = null
 }
 
 export default function Home() {
-  const [currentRole, setCurrentRole] = useState(null);
+  // Session Persistence (Swipe Refresh Fix)
+  const [currentRole, setCurrentRole] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("tathastu_role") || null;
+    }
+    return null;
+  });
+
   const [enteredPin, setEnteredPin] = useState("");
   const [selectedRoleToLogin, setSelectedRoleToLogin] = useState("admin");
   const [loginError, setLoginError] = useState("");
 
-  const [screen, setScreen] = useState("home");
+  const [screen, setScreen] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("tathastu_screen") || "home";
+    }
+    return "home";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (currentRole) localStorage.setItem("tathastu_role", currentRole);
+      else localStorage.removeItem("tathastu_role");
+      if (screen) localStorage.setItem("tathastu_screen", screen);
+    }
+  }, [currentRole, screen]);
+
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [loadingPatients, setLoadingPatients] = useState(false);
@@ -117,7 +138,7 @@ export default function Home() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState("");
 
-  // New Patient State
+  // New Patient State (With Fee Option)
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
@@ -129,7 +150,7 @@ export default function Home() {
   const [weight, setWeight] = useState("");
   const [temperature, setTemperature] = useState("");
   const [spo2, setSpo2] = useState("");
-    const [feeAmount, setFeeAmount] = useState("");
+  const [feeAmount, setFeeAmount] = useState("200");
   const [paymentStatus, setPaymentStatus] = useState("Paid");
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [saving, setSaving] = useState(false);
@@ -147,9 +168,6 @@ export default function Home() {
   const [editWeight, setEditWeight] = useState("");
   const [editTemperature, setEditTemperature] = useState("");
   const [editSpo2, setEditSpo2] = useState("");
-      const [editFeeAmount, setEditFeeAmount] = useState("");
-    const [editPaymentStatus, setEditPaymentStatus] = useState("Paid");
-    const [editPaymentMode, setEditPaymentMode] = useState("Cash");
   const [editingPatient, setEditingPatient] = useState(false);
   const [editMsg, setEditMsg] = useState("");
 
@@ -257,6 +275,9 @@ export default function Home() {
     pharmacyPending: 0
   });
 
+  // Today's Shift Calculation for Reception Desk
+  const [todayPatientsList, setTodayPatientsList] = useState([]);
+
   useEffect(() => {
     loadHospitalSettings();
     loadMasterPresets();
@@ -277,6 +298,10 @@ export default function Home() {
   }
 
   function handleLogout() {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("tathastu_role");
+      localStorage.removeItem("tathastu_screen");
+    }
     setCurrentRole(null);
     setEnteredPin("");
     setScreen("loginScreen");
@@ -364,10 +389,11 @@ export default function Home() {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
 
-      const { data: todPatients } = await supabase.from("patients").select("opd_status, created_at").gte("created_at", todayStart.toISOString());
+      const { data: todPatients } = await supabase.from("patients").select("*").gte("created_at", todayStart.toISOString()).order("id", { ascending: true });
       const { data: pharmacyData } = await supabase.from("prescriptions").select("pharmacy_status").gte("created_at", todayStart.toISOString());
 
       const todList = todPatients || [];
+      setTodayPatientsList(todList);
       const waiting = todList.filter((p) => (p.opd_status || "Waiting") === "Waiting").length;
       const completed = todList.filter((p) => p.opd_status === "Completed").length;
       
@@ -436,9 +462,9 @@ export default function Home() {
     try {
       const { data } = await supabase.from("patients").select("*").order("id", { ascending: true });
       if (!data || data.length === 0) return alert("कोई डेटा उपलब्ध नहीं है");
-      let csvContent = "data:text/csv;charset=utf-8,ID,UHID,Name,Age,Gender,Phone,Complaint,Referral,BP,Pulse,Weight,Temp,SpO2,Date,Status\n";
+      let csvContent = "data:text/csv;charset=utf-8,ID,UHID,Name,Age,Gender,Phone,Complaint,Referral,BP,Pulse,Weight,Temp,SpO2,Fee,PayStatus,PayMode,Date,Status\n";
       data.forEach((p) => {
-        csvContent += `${p.id},TAT-${p.id},"${p.name || ""}",${p.age || ""},${p.gender || ""},"${p.phone || ""}","${(p.complaint || "").replace(/"/g, '""')}","${p.referred_by || ""}","${p.bp || ""}","${p.pulse_rate || ""}","${p.weight || ""}","${p.temperature || ""}","${p.spo2 || ""}","${formatDate(p.created_at)}",${p.opd_status || ""}\n`;
+        csvContent += `${p.id},TAT-${p.id},"${p.name || ""}",${p.age || ""},${p.gender || ""},"${p.phone || ""}","${(p.complaint || "").replace(/"/g, '""')}","${p.referred_by || ""}","${p.bp || ""}","${p.pulse_rate || ""}","${p.weight || ""}","${p.temperature || ""}","${p.spo2 || ""}",${p.fee_amount || 0},"${p.payment_status || ""}","${p.payment_mode || ""}","${formatDate(p.created_at)}",${p.opd_status || ""}\n`;
       });
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
@@ -488,7 +514,6 @@ export default function Home() {
         const lines = text.split(/\r\n|\n/).filter(line => line.trim().length > 0);
         if (lines.length <= 1) throw new Error("फ़ाइल में कोई डेटा पंक्ति नहीं मिली");
 
-        const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
         const parsedItems = [];
 
         for (let i = 1; i < lines.length; i++) {
@@ -524,6 +549,7 @@ export default function Home() {
     reader.readAsText(file);
   }
 
+  // Save Patient with Auto-Billing Insertion
   async function savePatient() {
     setMessage("");
     if (!name.trim()) {
@@ -544,10 +570,10 @@ export default function Home() {
         weight: weight.trim() || null,
         temperature: temperature.trim() || null,
         spo2: spo2.trim() || null,
-        opd_status: "Waiting",
         fee_amount: Number(feeAmount) || 0,
         payment_status: paymentStatus,
         payment_mode: paymentMode,
+        opd_status: "Waiting",
         created_at: new Date().toISOString()
       };
 
@@ -565,15 +591,31 @@ export default function Home() {
       }
 
       if (error) throw error;
+
+      // Auto-insert billing record for Financial Accounts Dashboard
+      if (Number(feeAmount) > 0 && paymentStatus === "Paid") {
+        await supabase.from("billings").insert([{
+          patient_id: data?.id,
+          consultation_fee: Number(feeAmount) || 0,
+          medicine_fee: 0,
+          procedure_fee: 0,
+          discount: 0,
+          total_amount: Number(feeAmount) || 0,
+          payment_mode: paymentMode === "Cash" ? "Cash (नकद)" : "UPI / Online",
+          notes: "OPD Consultation Fee",
+          created_at: new Date().toISOString()
+        }]);
+      }
+
       const generatedId = data?.id ? `TAT-${data.id}` : "";
       const regTime = formatTime(data?.created_at || patient.created_at);
       setMessage(`✅ टोकन जारी! (UHID: ${generatedId} | समय: ${regTime})`);
       setName(""); setAge(""); setGender(""); setPhone(""); setComplaint(""); setReferredBy("");
       setBp(""); setPulseRate(""); setWeight(""); setTemperature(""); setSpo2("");
-      setFeeAmount("");
+      setFeeAmount("200");
       setPaymentStatus("Paid");
       setPaymentMode("Cash");
-       fetchStats();
+      fetchStats();
     } catch (error) {
       setMessage("❌ Save Error: " + (error?.message || "Failed"));
     } finally {
@@ -608,9 +650,6 @@ export default function Home() {
     setEditReferredBy(selectedPatient.referred_by || "");
     setEditBp(selectedPatient.bp || "");
     setEditPulseRate(selectedPatient.pulse_rate || "");
-    setEditFeeAmount(selectedPatient.fee_amount?.toString() || "");
-    setEditPaymentStatus(selectedPatient.payment_status || "Paid");
-    setEditPaymentMode(selectedPatient.payment_mode || "Cash");
     setEditWeight(selectedPatient.weight || "");
     setEditTemperature(selectedPatient.temperature || "");
     setEditSpo2(selectedPatient.spo2 || "");
@@ -1340,6 +1379,11 @@ export default function Home() {
       pharmacy: { name: "💊 मेडिकल स्टोर", color: "#4a148c", bg: "#f3e5f5" }
     }[currentRole] || { name: "डेस्क", color: "#333", bg: "#eee" };
 
+    // Receptionist shift calculations
+    const shiftCash = todayPatientsList.filter(p => (p.payment_status === "Paid" || p.payment_status === "जमा") && p.payment_mode === "Cash").reduce((sum, p) => sum + (Number(p.fee_amount) || 0), 0);
+    const shiftOnline = todayPatientsList.filter(p => (p.payment_status === "Paid" || p.payment_status === "जमा") && (p.payment_mode === "Online" || p.payment_mode === "UPI")).reduce((sum, p) => sum + (Number(p.fee_amount) || 0), 0);
+    const shiftDue = todayPatientsList.filter(p => p.payment_status === "Due" || p.payment_status === "बाकी").reduce((sum, p) => sum + (Number(p.fee_amount) || 0), 0);
+
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
         <GlobalDatalists />
@@ -1384,6 +1428,34 @@ export default function Home() {
             <div style={{ fontSize: "22px", fontWeight: "bold", color: "#004d40", marginTop: "4px" }}>{stats.completedCount}</div>
           </div>
         </div>
+
+        {/* Receptionist Shift & Handover Box */}
+        {isReception && (
+          <div style={{ background: "#ffffff", padding: "12px", borderRadius: "10px", border: "1px solid #e5e7eb", maxWidth: "480px", marginBottom: "14px", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}>
+            <div style={{ fontSize: "12px", fontWeight: "bold", color: "#374151", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
+              <span>💼 आज का शिफ्ट हिसाब (Daily Collection)</span>
+              <span style={{ fontSize: "11px", color: "#6b7280" }}>टोकन: {todayPatientsList.length}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", textAlign: "center" }}>
+              <div style={{ background: "#f0fdf4", padding: "6px", borderRadius: "6px", border: "1px solid #bbf7d0" }}>
+                <div style={{ fontSize: "10px", color: "#166534" }}>💵 Cash जमा</div>
+                <div style={{ fontSize: "13px", fontWeight: "bold", color: "#15803d" }}>₹{shiftCash}</div>
+              </div>
+              <div style={{ background: "#eff6ff", padding: "6px", borderRadius: "6px", border: "1px solid #bfdbfe" }}>
+                <div style={{ fontSize: "10px", color: "#1e40af" }}>📱 Online UPI</div>
+                <div style={{ fontSize: "13px", fontWeight: "bold", color: "#1d4ed8" }}>₹{shiftOnline}</div>
+              </div>
+              <div style={{ background: "#fef2f2", padding: "6px", borderRadius: "6px", border: "1px solid #fecaca" }}>
+                <div style={{ fontSize: "10px", color: "#991b1b" }}>⏳ बाकी (Due)</div>
+                <div style={{ fontSize: "13px", fontWeight: "bold", color: "#b91c1c" }}>₹{shiftDue}</div>
+              </div>
+            </div>
+            <div style={{ marginTop: "8px", padding: "6px 8px", background: "#f9fafb", borderRadius: "4px", fontSize: "11px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>हैंडओवर नकद राशि (Gallah Cash):</span>
+              <strong style={{ color: "#111827", fontSize: "13px" }}>₹{shiftCash}</strong>
+            </div>
+          </div>
+        )}
 
         <div style={{ maxWidth: "480px", marginBottom: "12px" }}>
           <input
@@ -1440,7 +1512,7 @@ export default function Home() {
     );
   }
 
-  // 2. NEW PATIENT SCREEN
+  // 2. NEW PATIENT SCREEN (WITH CONSULTATION FEE & AUTO-BILLING)
   if (screen === "newPatient") {
     return (
       <main style={{ minHeight: "100vh", background: "#f5f7f2", padding: "20px", fontFamily: "Arial, sans-serif" }}>
@@ -1488,58 +1560,33 @@ export default function Home() {
               <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "12px" }} placeholder="Temp (°F)" value={temperature} onChange={(e) => setTemperature(e.target.value)} />
               <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "12px" }} placeholder="SpO2 (%)" value={spo2} onChange={(e) => setSpo2(e.target.value)} />
             </div>
-                
-          {/* Consultation Fee & Payment Section */}
-        <div style={{ background: "#f0fdf4", padding: "12px", borderRadius: "8px", border: "1px solid #bbf7d0", marginTop: "8px" }}>
-          <div style={{ fontSize: "13px", fontWeight: "bold", color: "#166534", marginBottom: "8px" }}>
-            💰 परामर्श शुल्क व भुगतान (Consultation Fee)
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-            <div>
-              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
-                शुल्क (₹)
-              </label>
-              <input
-                type="number"
-                placeholder="उदा. 200"
-                value={feeAmount}
-                onChange={(e) => setFeeAmount(e.target.value)}
-                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box" }}
-              />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
-                भुगतान स्थिति
-              </label>
-              <select
-                value={paymentStatus}
-                onChange={(e) => setPaymentStatus(e.target.value)}
-                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box" }}
-              >
-                <option value="Paid">Paid (जमा)</option>
-                <option value="Due">Due (बाकी)</option>
-                <option value="Free">Free (निःशुल्क)</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
-                माध्यम (Mode)
-              </label>
-              <select
-                disabled={paymentStatus === "Free"}
-                value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value)}
-                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box", opacity: paymentStatus === "Free" ? 0.5 : 1 }}
-              >
-                <option value="Cash">Cash (नकद)</option>
-                <option value="Online">Online (UPI)</option>
-              </select>
-            </div>
-          </div>
-        </div>
 
+          {/* Consultation Fee Section */}
+          <div style={{ background: "#f0fdf4", padding: "12px", borderRadius: "8px", border: "1px solid #bbf7d0" }}>
+            <div style={{ fontSize: "12px", fontWeight: "bold", color: "#166534", marginBottom: "8px" }}>💰 परामर्श शुल्क व भुगतान (Consultation Fee):</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
+              <div>
+                <label style={{ fontSize: "11px", color: "#374151" }}>शुल्क (₹)</label>
+                <input type="number" value={feeAmount} onChange={(e) => setFeeAmount(e.target.value)} style={{ width: "100%", padding: "6px", borderRadius: "4px", border: "1px solid #d1d5db", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: "11px", color: "#374151" }}>स्थिति</label>
+                <select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)} style={{ width: "100%", padding: "6px", borderRadius: "4px", border: "1px solid #d1d5db", boxSizing: "border-box", background: "#fff" }}>
+                  <option value="Paid">Paid (जमा)</option>
+                  <option value="Due">Due (बाकी)</option>
+                  <option value="Free">Free (निःशुल्क)</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: "11px", color: "#374151" }}>माध्यम</label>
+                <select disabled={paymentStatus === "Free"} value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} style={{ width: "100%", padding: "6px", borderRadius: "4px", border: "1px solid #d1d5db", boxSizing: "border-box", background: "#fff" }}>
+                  <option value="Cash">Cash (नकद)</option>
+                  <option value="Online">Online (UPI)</option>
+                </select>
+              </div>
+            </div>
           </div>
-      
 
           <input
             list="diagnosisSuggestions"
@@ -1558,7 +1605,7 @@ export default function Home() {
     );
   }
 
-  // 3. PATIENTS LIST & QUEUE
+  // 3. PATIENTS LIST & QUEUE (WITH PAYMENT BADGE)
   if (screen === "patients") {
     const filtered = patients.filter((p) => {
       const pName = (p.name || "").toLowerCase();
@@ -1621,8 +1668,26 @@ export default function Home() {
               return (
                 <div key={p.id} style={{ padding: "14px", background: "#fff", border: isWaiting ? "1.5px solid #ffe082" : isNoShow ? "1px solid #ef9a9a" : "1px solid #ddd", borderRadius: "10px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div onClick={() => { setSelectedPatient(p); setScreen("profile"); }} style={{ fontWeight: "bold", fontSize: "16px", color: "#222", cursor: "pointer" }}>
+                    <div onClick={() => { setSelectedPatient(p); setScreen("profile"); }} style={{ fontWeight: "bold", fontSize: "16px", color: "#222", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                       👤 {p.name}
+                      {/* Payment Badge */}
+                      {p.fee_amount > 0 ? (
+                        <span style={{
+                          fontSize: "10px",
+                          fontWeight: "bold",
+                          padding: "2px 6px",
+                          borderRadius: "10px",
+                          background: (p.payment_status === "Paid" || p.payment_status === "जमा") ? "#dcfce7" : "#fee2e2",
+                          color: (p.payment_status === "Paid" || p.payment_status === "जमा") ? "#166534" : "#991b1b",
+                          border: `1px solid ${(p.payment_status === "Paid" || p.payment_status === "जमा") ? "#86efac" : "#fca5a5"}`
+                        }}>
+                          ₹{p.fee_amount} [{p.payment_mode || "Cash"}]
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "10px", background: "#f3f4f6", color: "#6b7280" }}>
+                          Free
+                        </span>
+                      )}
                     </div>
                     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                       <span style={{ background: isWaiting ? "#fff8e1" : isNoShow ? "#ffebee" : "#e8f5e9", color: isWaiting ? "#e65100" : isNoShow ? "#c62828" : "#2e7d32", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
@@ -1736,6 +1801,7 @@ export default function Home() {
 
           <p style={{ margin: "6px 0" }}><strong>आयु:</strong> {p.age || "—"} | <strong>लिंग:</strong> {p.gender || "—"}</p>
           <p style={{ margin: "6px 0" }}><strong>मोबाइल:</strong> {p.phone || "—"}</p>
+          <p style={{ margin: "6px 0" }}><strong>परामर्श शुल्क:</strong> ₹{p.fee_amount || 0} ({p.payment_status || "Paid"} - {p.payment_mode || "Cash"})</p>
           <p style={{ margin: "6px 0" }}><strong>मुख्य शिकायत:</strong><br />{p.complaint || "—"}</p>
 
           <button onClick={startEditPatient} style={{ width: "100%", padding: "8px", margin: "8px 0 14px 0", cursor: "pointer", background: "#fff", border: "1px solid #1976d2", color: "#1976d2", borderRadius: "6px", fontWeight: "bold", fontSize: "13px" }}>
@@ -1778,7 +1844,7 @@ export default function Home() {
     );
   }
 
-  // 5. INVENTORY SCREEN (WITH BULK CSV EXCEL UPLOADER)
+  // 5. INVENTORY SCREEN
   if (screen === "inventoryScreen") {
     const filteredInv = inventoryList.filter(item => 
       (item.medicine_name || "").toLowerCase().includes(invSearch.toLowerCase()) ||
@@ -3024,7 +3090,7 @@ export default function Home() {
     );
   }
 
-  // 19. MASTER SETTINGS SCREEN (COMPLETE & RESTORED)
+  // 19. MASTER SETTINGS SCREEN
   if (screen === "settingsScreen") {
     const getPlaceholderText = () => {
       switch (masterType) {
