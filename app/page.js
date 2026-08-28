@@ -1488,57 +1488,55 @@ export default function Home() {
               <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "12px" }} placeholder="Temp (°F)" value={temperature} onChange={(e) => setTemperature(e.target.value)} />
               <input style={{ padding: "8px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "12px" }} placeholder="SpO2 (%)" value={spo2} onChange={(e) => setSpo2(e.target.value)} />
             </div>
-                {/* Consultation Fee & Payment Section */}
-<div style={{ background: "#f0fdf4", padding: "12px", borderRadius: "8px", border: "1px solid #bbf7d0" }}>
-  <div style={{ fontSize: "13px", fontWeight: "bold", color: "#166534", marginBottom: "8px" }}>
-    💰 परामर्श शुल्क व भुगतान (Consultation Fee)
-  </div>
-  
-  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-    <div>
-      <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
-        शुल्क (₹)
-      </label>
-      <input
-        type="number"
-        placeholder="उदा. 200"
-        value={feeAmount}
-        onChange={(e) => setFeeAmount(e.target.value)}
-        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box" }}
-      />
-    </div>
-
-    <div>
-      <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
-        भुगतान स्थिति
-      </label>
-      <select
-        value={paymentStatus}
-        onChange={(e) => setPaymentStatus(e.target.value)}
-        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box" }}
-      >
-        <option value="Paid">Paid (जमा)</option>
-        <option value="Due">Due (बाकी)</option>
-        <option value="Free">Free (निःशुल्क)</option>
-      </select>
-    </div>
-
-    <div>
-      <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
-        माध्यम (Mode)
-      </label>
-      <select
-        disabled={paymentStatus === "Free"}
-        value={paymentMode}
-        onChange={(e) => setPaymentMode(e.target.value)}
-        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box", opacity: paymentStatus === "Free" ? 0.5 : 1 }}
-      >
-        <option value="Cash">Cash (नकद)</option>
-        <option value="Online">Online (UPI)</option>
-      </select>
-    </div>
-  </div>
-</div>
+                
+          {/* Consultation Fee & Payment Section */}
+        <div style={{ background: "#f0fdf4", padding: "12px", borderRadius: "8px", border: "1px solid #bbf7d0", marginTop: "8px" }}>
+          <div style={{ fontSize: "13px", fontWeight: "bold", color: "#166534", marginBottom: "8px" }}>
+            💰 परामर्श शुल्क व भुगतान (Consultation Fee)
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
+                शुल्क (₹)
+              </label>
+              <input
+                type="number"
+                placeholder="उदा. 200"
+                value={feeAmount}
+                onChange={(e) => setFeeAmount(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box" }}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
+                भुगतान स्थिति
+              </label>
+              <select
+                value={paymentStatus}
+                onChange={(e) => setPaymentStatus(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box" }}
+              >
+                <option value="Paid">Paid (जमा)</option>
+                <option value="Due">Due (बाकी)</option>
+                <option value="Free">Free (निःशुल्क)</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: "600", marginBottom: "4px", color: "#374151" }}>
+                माध्यम (Mode)
+              </label>
+              <select
+                disabled={paymentStatus === "Free"}
+                value={paymentMode}
+                onChange={(e) => setPaymentMode(e.target.value)}
+                style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", background: "#fff", boxSizing: "border-box", opacity: paymentStatus === "Free" ? 0.5 : 1 }}
+              >
+                <option value="Cash">Cash (नकद)</option>
+                <option value="Online">Online (UPI)</option>
+              </select>
+            </div>
+          </div>
+        </div>
 
           </div>
       
